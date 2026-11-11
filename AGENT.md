@@ -687,12 +687,14 @@ or data availability.
 -   Generate and compare routes.
 -   Explain route costs and limitations.
 
-### Milestone 4 --- Interactive experience
+### Milestone 4 --- Interactive experience & 3D Terrain Reconstruction (Completed)
 
--   Connect the UI to real job status.
--   Show sector state transitions.
--   Render available layers.
--   Present route comparison and a mission report.
+-   Connect the UI to real job status via asynchronous background job manager (`JobManager`, `/api/jobs/{id}`, `/api/jobs/{id}/cancel`).
+-   Show sector state transitions with active storage telemetry and cache purge governance (`/api/storage/status`, `DELETE /api/storage/cache/{id}`).
+-   High-resolution DEM acquisition: MGS MOLA MEGDR 128 px/deg ($463\text{ m/px}$, $128 \times 128$ grid) via targeted HTTP Range slices from PDS Geosciences.
+-   Surface texture acquisition: Georeferenced NASA Mars Trek Viking Color Mosaic MDIM 2.1 ($232\text{ m/px}$) draped onto elevation geometry.
+-   Interactive 3D Terrain Viewer (`ThreeTerrainView.tsx`): Pure Three.js displaced surface mesh, orbit controls, layer material switching (Visible, Elevation, Slope, Roughness), vertical exaggeration slider ($1.0\times$ to $3.5\times$), wireframe toggle, and real-time 3D raycaster probe (Lat, Lon, Elevation m, Slope °, Roughness m).
+-   Present route comparison and mission report in Mission Control.
 
 ------------------------------------------------------------------------
 
