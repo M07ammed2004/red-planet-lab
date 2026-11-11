@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.health import router as health_router
+from backend.app.api.routes import router as routes_router
 from backend.app.api.sectors import router as sectors_router
 from backend.app.core.config import settings
 
@@ -25,6 +26,7 @@ app.add_middleware(
 # Register routers
 app.include_router(health_router, prefix="/api")
 app.include_router(sectors_router, prefix="/api")
+app.include_router(routes_router, prefix="/api")
 
 
 @app.get("/")
@@ -35,4 +37,5 @@ async def root():
         "docs": "/api/docs",
         "health": "/api/health",
         "sectors": "/api/sectors",
+        "routes": "/api/routes/plan",
     }

@@ -5,6 +5,13 @@ from backend.app.models.product import (
     ProductFileType,
     SpatialFootprint,
 )
+from backend.app.models.route import (
+    RouteComparisonResponse,
+    RoutePlanRequest,
+    RouteResult,
+    RouteStrategy,
+    Waypoint,
+)
 from backend.app.models.sector import (
     LayerState,
     LayerStatus,
@@ -22,8 +29,13 @@ __all__ = [
     "NormalizedProduct",
     "ProductFile",
     "ProductFileType",
+    "RouteComparisonResponse",
+    "RoutePlanRequest",
+    "RouteResult",
+    "RouteStrategy",
     "Sector",
     "SectorBounds",
     "SectorState",
     "SpatialFootprint",
+    "Waypoint",
 ]
