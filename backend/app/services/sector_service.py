@@ -74,6 +74,35 @@ class SectorService:
         self._sectors[jezero.sector_id] = jezero
         self._sectors[gale.sector_id] = gale
 
+        # Seed other verified exploration sites
+        additional_sites = [
+            ("SEC-OLYMPUS-01", "Olympus Mons", (18.65, 226.2), SectorBounds(min_lat=17.5, max_lat=19.5, min_lon=225.0, max_lon=227.5), 12500.0),
+            ("SEC-VALLES-01", "Valles Marineris (Candor Chasma)", (-6.5, 284.0), SectorBounds(min_lat=7.5 * -1, max_lat=5.5 * -1, min_lon=283.0, max_lon=285.0), 8900.0),
+            ("SEC-ARCADIA-01", "Arcadia Planitia", (39.3, 189.7), SectorBounds(min_lat=38.5, max_lat=40.5, min_lon=188.5, max_lon=191.0), 7400.0),
+            ("SEC-ELYSIUM-01", "Elysium Planitia", (4.5, 135.6), SectorBounds(min_lat=3.5, max_lat=5.5, min_lon=134.5, max_lon=137.0), 7100.0),
+            ("SEC-MERIDIANI-01", "Meridiani Planum", (-0.19, 354.47), SectorBounds(min_lat=-1.0, max_lat=0.5, min_lon=353.5, max_lon=355.5), 4800.0),
+            ("SEC-GUSEV-01", "Gusev Crater", (-14.57, 175.47), SectorBounds(min_lat=-15.5, max_lat=-13.5, min_lon=174.5, max_lon=176.5), 5200.0),
+        ]
+
+        for s_id, s_name, s_center, s_bounds, s_area in additional_sites:
+            self._sectors[s_id] = Sector(
+                sector_id=s_id,
+                name=s_name,
+                bounds=s_bounds,
+                center=s_center,
+                area_km2=s_area,
+                coordinate_reference_system="IAU2000:49900",
+                state=SectorState.UNSCOUTED,
+                layers={
+                    LayerType.ELEVATION: LayerState(layer_type=LayerType.ELEVATION, status=LayerStatus.NOT_CHECKED),
+                    LayerType.IMAGERY: LayerState(layer_type=LayerType.IMAGERY, status=LayerStatus.NOT_CHECKED),
+                    LayerType.SLOPE: LayerState(layer_type=LayerType.SLOPE, status=LayerStatus.NOT_CHECKED),
+                    LayerType.ROUGHNESS: LayerState(layer_type=LayerType.ROUGHNESS, status=LayerStatus.NOT_CHECKED),
+                    LayerType.RISK: LayerState(layer_type=LayerType.RISK, status=LayerStatus.NOT_CHECKED),
+                    LayerType.SCIENTIFIC_INTEREST: LayerState(layer_type=LayerType.SCIENTIFIC_INTEREST, status=LayerStatus.NOT_CHECKED),
+                },
+            )
+
     def get_sectors(self) -> list[Sector]:
         """Return all registered sectors."""
         return list(self._sectors.values())
