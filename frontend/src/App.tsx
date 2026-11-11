@@ -12,6 +12,7 @@ export const App: React.FC = () => {
   const [apiHealthy, setApiHealthy] = useState<boolean | null>(null);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedRegion, setSelectedRegion] = useState<MarsRegion | null>(MARS_REGIONS[0]);
+  const [autoStartSectorId, setAutoStartSectorId] = useState<string | null>(null);
 
   const loadSectors = async () => {
     try {
@@ -33,11 +34,14 @@ export const App: React.FC = () => {
   // Find backend sector matching current selected region
   const currentSector = sectors.find((s) => s.sector_id === selectedRegion?.id) || null;
 
-  const handleStartAcquisition = (_region: MarsRegion) => {
+  const handleStartAcquisition = (region: MarsRegion) => {
+    setSelectedRegion(region);
+    setAutoStartSectorId(region.id);
     setActiveTab('exploration');
   };
 
-  const handleEnterTerrain = (_region: MarsRegion) => {
+  const handleEnterTerrain = (region: MarsRegion) => {
+    setSelectedRegion(region);
     setActiveTab('exploration');
   };
 
@@ -65,6 +69,8 @@ export const App: React.FC = () => {
           <div className="tab-padded-content">
             <SectorExploration
               sector={currentSector}
+              autoStart={autoStartSectorId === currentSector?.sector_id}
+              onAutoStartConsumed={() => setAutoStartSectorId(null)}
               onNavigateToMission={() => setActiveTab('mission')}
             />
           </div>

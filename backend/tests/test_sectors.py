@@ -16,14 +16,14 @@ def test_list_sectors():
 
 
 def test_get_sector_detail():
-    response = client.get("/api/sectors/SEC-JEZERO-01")
+    response = client.get("/api/sectors/SEC-GALE-01")
     assert response.status_code == 200
     sector = response.json()
-    assert sector["sector_id"] == "SEC-JEZERO-01"
+    assert sector["sector_id"] == "SEC-GALE-01"
     assert sector["state"] == SectorState.UNSCOUTED.value
     assert "bounds" in sector
-    assert sector["bounds"]["min_lat"] == 18.0
-    assert sector["bounds"]["max_lat"] == 19.0
+    assert sector["bounds"]["min_lat"] == -6.0
+    assert sector["bounds"]["max_lat"] == -5.0
 
 
 def test_get_nonexistent_sector():

@@ -129,3 +129,45 @@ async def get_sector_layer_preview(sector_id: str, layer_type: str):
             detail=f"Preview for layer '{layer_type}' not found for sector '{sector_id}'",
         )
     return FileResponse(layer_png, media_type="image/png")
+
+
+@router.post("/{sector_id}/explore")
+async def explore_sector(sector_id: str):
+    """
+    On-demand automated exploration endpoint.
+    Checks local cache for high-resolution 3D terrain assets; if missing, initiates
+    background acquisition of MOLA 128 DEM, Viking texture draping, and mesh reconstruction.
+    """
+    sector = sector_service.get_sector(sector_id)
+    if not sector:
+        raise HTTPException(status_code=404, detail=f"Sector '{sector_id}' not found")
+    try:
+        result = await sector_service.start_exploration_pipeline(sector_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start exploration pipeline: {e}")
+
+
+@router.get("/{sector_id}/terrain-mesh")
+async def get_sector_terrain_mesh(sector_id: str):
+    """Retrieve the high-resolution 3D terrain mesh data and geomorphometric layers."""
+    mesh_path = settings.DATA_PROCESSED_DIR / sector_id / "terrain_mesh.json"
+    if not mesh_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Terrain mesh not found for sector '{sector_id}'. Initiate exploration first.",
+        )
+    with open(mesh_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@router.get("/{sector_id}/texture")
+async def get_sector_surface_texture(sector_id: str):
+    """Serve georeferenced orbital surface texture for 3D terrain draping."""
+    texture_path = settings.DATA_PROCESSED_DIR / sector_id / "surface_texture.png"
+    if not texture_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Surface texture not found for sector '{sector_id}'. Initiate exploration first.",
+        )
+    return FileResponse(texture_path, media_type="image/png")

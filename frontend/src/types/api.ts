@@ -128,3 +128,73 @@ export interface RouteComparisonResponse {
   routes: Record<RouteStrategy, RouteResult>;
   summary: string;
 }
+
+export interface TerrainMesh {
+  sector_id: string;
+  bounds: SectorBounds;
+  dimensions: [number, number];
+  resolution_m_per_px: number;
+  coordinate_system: string;
+  elevation_stats: {
+    min: number;
+    max: number;
+    mean: number;
+    std: number;
+  };
+  slope_stats: {
+    min: number;
+    max: number;
+    mean: number;
+    std: number;
+  };
+  roughness_stats: {
+    min: number;
+    max: number;
+    mean: number;
+    std: number;
+  };
+  texture_url: string;
+  elevation_colormap_url: string;
+  slope_colormap_url: string;
+  roughness_colormap_url: string;
+  elevation_grid: number[][];
+  slope_grid: number[][];
+  roughness_grid: number[][];
+  created_at: string;
+}
+
+export interface JobInfo {
+  job_id: string;
+  sector_id: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  stage: string;
+  progress_pct: number;
+  downloaded_bytes: number;
+  total_bytes: number;
+  current_file: string;
+  detail_message: string;
+  error_message?: string | null;
+  is_cancelled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StorageStatus {
+  disk: {
+    total_bytes: number;
+    free_bytes: number;
+    used_bytes: number;
+    free_gb: number;
+    used_gb: number;
+  };
+  tiers: {
+    raw_bytes: number;
+    raw_mb: number;
+    processed_bytes: number;
+    processed_mb: number;
+    cache_bytes: number;
+    cache_mb: number;
+    metadata_bytes: number;
+    metadata_mb: number;
+  };
+}

@@ -1,11 +1,17 @@
+import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 from typing import Any
+from backend.app.core.config import settings
 from backend.app.data_engine.adapters.ode_adapter import ODEAdapter
 from backend.app.data_engine.downloader import Downloader
+from backend.app.data_engine.highres_downloader import highres_downloader
 from backend.app.data_engine.product_selector import ProductSelector
+from backend.app.jobs.job_manager import JobStage, job_manager
 from backend.app.processing.dem_reader import DEMReader
 from backend.app.processing.layer_exporter import LayerExporter
+from backend.app.processing.terrain_3d_builder import terrain_3d_builder
 from backend.app.processing.terrain_metrics import compute_roughness, compute_slope
 from backend.app.models.sector import (
     LayerState,
@@ -338,6 +344,128 @@ class SectorService:
             sector.error_message = str(e)
             sector.updated_at = datetime.now(timezone.utc)
             raise
+
+    def is_sector_ready_3d(self, sector_id: str) -> bool:
+        """Check whether high-resolution 3D mesh and texture assets exist for the sector."""
+        mesh_path = settings.DATA_PROCESSED_DIR / sector_id / "terrain_mesh.json"
+        texture_path = settings.DATA_PROCESSED_DIR / sector_id / "surface_texture.png"
+        return mesh_path.exists() and texture_path.exists()
+
+    async def start_exploration_pipeline(self, sector_id: str) -> dict[str, Any]:
+        """
+        Orchestrate on-demand automated data acquisition and 3D terrain reconstruction.
+        Reuses cached assets if available; otherwise initiates background retrieval.
+        """
+        sector = self.get_sector(sector_id)
+        if not sector:
+            raise ValueError(f"Sector {sector_id} not found")
+
+        if self.is_sector_ready_3d(sector_id):
+            sector.state = SectorState.DISCOVERED
+            for lt in [LayerType.ELEVATION, LayerType.SLOPE, LayerType.ROUGHNESS, LayerType.IMAGERY]:
+                sector.layers[lt].status = LayerStatus.READY
+                if lt not in sector.available_layers:
+                    sector.available_layers.append(lt)
+            return {
+                "status": "READY",
+                "sector_id": sector_id,
+                "message": "High-resolution 3D terrain already reconstructed in local storage.",
+            }
+
+        active_job = job_manager.get_active_job_for_sector(sector_id)
+        if active_job:
+            return {
+                "status": "PROCESSING",
+                "sector_id": sector_id,
+                "job_id": active_job.job_id,
+                "job": active_job.to_dict(),
+            }
+
+        job = job_manager.create_job(sector_id)
+        asyncio.create_task(self.run_highres_pipeline(sector_id, job.job_id))
+
+        return {
+            "status": "PROCESSING",
+            "sector_id": sector_id,
+            "job_id": job.job_id,
+            "estimated_bytes": 3500000,
+            "job": job.to_dict(),
+        }
+
+    async def run_highres_pipeline(self, sector_id: str, job_id: str) -> None:
+        """
+        Background worker executing end-to-end MOLA 128 DEM + Viking texture + 3D mesh reconstruction.
+        """
+        sector = self.get_sector(sector_id)
+        if not sector:
+            job_manager.mark_failed(job_id, f"Sector {sector_id} not found")
+            return
+
+        sector.state = SectorState.DOWNLOADING
+        sector.updated_at = datetime.now(timezone.utc)
+
+        try:
+            # Active storage check
+            disk = shutil.disk_usage(settings.BASE_DIR)
+            if disk.free < 50 * 1024 * 1024:
+                raise RuntimeError(f"Insufficient disk space on host: {disk.free // (1024**2)} MB available")
+
+            # 1. Acquire high-res MOLA 128 DEM
+            job_manager.update_progress(
+                job_id,
+                stage=JobStage.DOWNLOADING_DEM,
+                progress_pct=20.0,
+                detail_message="Acquiring MOLA 128 px/deg elevation grid from PDS Geosciences...",
+            )
+            elev_grid = await highres_downloader.acquire_mola_128_dem(sector_id, sector.bounds, job_id=job_id)
+
+            if job_manager.is_cancelled(job_id):
+                sector.state = SectorState.UNSCOUTED
+                return
+
+            # 2. Acquire Viking visible surface texture
+            job_manager.update_progress(
+                job_id,
+                stage=JobStage.DOWNLOADING_TEXTURE,
+                progress_pct=60.0,
+                detail_message="Acquiring georeferenced Viking orbital mosaic texture...",
+            )
+            await highres_downloader.acquire_visible_texture(sector_id, sector.bounds, job_id=job_id)
+
+            if job_manager.is_cancelled(job_id):
+                sector.state = SectorState.UNSCOUTED
+                return
+
+            # 3. Process 3D terrain & derived layers
+            job_manager.update_progress(
+                job_id,
+                stage=JobStage.PROCESSING_TERRAIN,
+                progress_pct=80.0,
+                detail_message="Synthesizing 3D terrain geometry, meridian slopes & roughness...",
+            )
+            res = terrain_3d_builder.build_and_export_terrain(sector_id, sector.bounds, elev_grid)
+
+            # 4. Mark complete & update sector
+            sector.state = SectorState.DISCOVERED
+            for lt in [LayerType.ELEVATION, LayerType.SLOPE, LayerType.ROUGHNESS, LayerType.IMAGERY]:
+                sector.layers[lt].status = LayerStatus.READY
+                if lt not in sector.available_layers:
+                    sector.available_layers.append(lt)
+            sector.updated_at = datetime.now(timezone.utc)
+
+            job_manager.mark_completed(job_id, result=res)
+            logger.info(f"Sector {sector_id} exploration pipeline finished successfully.")
+
+        except asyncio.CancelledError:
+            logger.info(f"Job {job_id} for sector {sector_id} was cancelled.")
+            sector.state = SectorState.UNSCOUTED
+            sector.updated_at = datetime.now(timezone.utc)
+        except Exception as e:
+            logger.error(f"Error in exploration pipeline for {sector_id}: {e}")
+            sector.state = SectorState.FAILED
+            sector.error_message = str(e)
+            sector.updated_at = datetime.now(timezone.utc)
+            job_manager.mark_failed(job_id, str(e))
 
 
 # Global singleton instance for the service

@@ -1,9 +1,12 @@
 import type {
+  JobInfo,
   LayerData,
   LayerType,
   RouteComparisonResponse,
   RouteStrategy,
   Sector,
+  StorageStatus,
+  TerrainMesh,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -79,5 +82,65 @@ export async function planMissionRoutes(params: {
     const err = await res.json().catch(() => ({ detail: 'Route planning failed' }));
     throw new Error(err.detail || 'Route planning failed');
   }
+  return res.json();
+}
+
+export async function fetchTerrainMesh(sectorId: string): Promise<TerrainMesh> {
+  const res = await fetch(`${API_BASE}/sectors/${sectorId}/terrain-mesh`);
+  if (!res.ok) throw new Error(`Failed to fetch terrain mesh for sector ${sectorId}`);
+  return res.json();
+}
+
+export async function startSectorExploration(sectorId: string): Promise<{
+  status: 'READY' | 'PROCESSING';
+  sector_id: string;
+  job_id?: string;
+  estimated_bytes?: number;
+  job?: JobInfo;
+  message?: string;
+}> {
+  const res = await fetch(`${API_BASE}/sectors/${sectorId}/explore`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to initiate exploration for sector ${sectorId}`);
+  return res.json();
+}
+
+export async function fetchJobStatus(jobId: string): Promise<JobInfo> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`Failed to query job ${jobId}`);
+  return res.json();
+}
+
+export async function cancelJob(jobId: string): Promise<{ cancelled: boolean; current_status: string }> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}/cancel`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to cancel job ${jobId}`);
+  return res.json();
+}
+
+export function getSectorTextureUrl(sectorId: string): string {
+  return `${API_BASE}/sectors/${sectorId}/texture`;
+}
+
+export async function fetchStorageStatus(): Promise<StorageStatus> {
+  const res = await fetch(`${API_BASE}/storage/status`);
+  if (!res.ok) throw new Error('Failed to fetch storage status');
+  return res.json();
+}
+
+export async function purgeSectorCache(
+  sectorId: string,
+  purgeRaw: boolean = true,
+  purgeProcessed: boolean = false
+): Promise<{ status: string; freed_mb: number; deleted_paths: string[] }> {
+  const res = await fetch(
+    `${API_BASE}/storage/cache/${sectorId}?purge_raw=${purgeRaw}&purge_processed=${purgeProcessed}`,
+    {
+      method: 'DELETE',
+    }
+  );
+  if (!res.ok) throw new Error(`Failed to purge cache for ${sectorId}`);
   return res.json();
 }
