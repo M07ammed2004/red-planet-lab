@@ -9,26 +9,28 @@ An interactive Mars exploration decision-support system that automatically disco
 ## Architecture Overview
 
 * **Backend:** FastAPI (Python 3.12+), Pydantic, NumPy, HTTPX, SQLite, Rasterio / GDAL.
-* **Frontend:** React, TypeScript, Three.js / Cesium / Map view.
+* **Frontend:** React 19, TypeScript, Vite.
 * **Data Storage:** Local partitioned cache (`data/raw/`, `data/processed/`, `data/cache/`, `data/metadata/`).
 
 ---
 
-## Quickstart (Backend)
+## Quickstart
 
-1. Activate virtual environment:
-   ```powershell
-   .venv\Scripts\Activate.ps1
-   ```
+### 1. Run the Backend API
+```powershell
+# In project root
+.venv\Scripts\Activate.ps1
+uvicorn backend.app.main:app --reload --port 8000
+```
+* **API Documentation:** `http://localhost:8000/api/docs`
+* **Health Check:** `http://localhost:8000/api/health`
 
-2. Run the development server:
-   ```powershell
-   uvicorn backend.app.main:app --reload --port 8000
-   ```
-
-3. Access the API documentation:
-   * Swagger UI: `http://localhost:8000/api/docs`
-   * Health Check: `http://localhost:8000/api/health`
+### 2. Run the Interactive Frontend
+```powershell
+cd frontend
+npm run dev
+```
+* **Web UI:** `http://localhost:5173`
 
 ---
 
