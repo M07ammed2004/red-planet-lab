@@ -4,6 +4,9 @@ from typing import Any
 from backend.app.data_engine.adapters.ode_adapter import ODEAdapter
 from backend.app.data_engine.downloader import Downloader
 from backend.app.data_engine.product_selector import ProductSelector
+from backend.app.processing.dem_reader import DEMReader
+from backend.app.processing.layer_exporter import LayerExporter
+from backend.app.processing.terrain_metrics import compute_roughness, compute_slope
 from backend.app.models.sector import (
     LayerState,
     LayerStatus,
@@ -23,6 +26,8 @@ class SectorService:
         self.ode_adapter = ODEAdapter()
         self.product_selector = ProductSelector()
         self.downloader = Downloader()
+        self.dem_reader = DEMReader()
+        self.layer_exporter = LayerExporter()
         self._sectors: dict[str, Sector] = {}
         self._init_default_sectors()
 
@@ -176,6 +181,131 @@ class SectorService:
             sector.state = SectorState.FAILED
             sector.layers[LayerType.ELEVATION].status = LayerStatus.FAILED
             sector.layers[LayerType.ELEVATION].error_message = str(e)
+            sector.error_message = str(e)
+            sector.updated_at = datetime.now(timezone.utc)
+            raise
+
+    async def process_sector_dem(self, sector_id: str) -> dict[str, Any]:
+        """
+        Parse downloaded DEM raster, crop to sector bounds, compute slope & roughness,
+        and export visualization-ready layers.
+        Transitions: PARTIALLY_DISCOVERED -> PROCESSING -> DISCOVERED.
+        """
+        sector = self.get_sector(sector_id)
+        if not sector:
+            raise ValueError(f"Sector {sector_id} not found")
+
+        # Locate downloaded DEM files
+        sector_raw_dir = self.downloader.raw_dir / sector_id
+        hdr_files = list(sector_raw_dir.glob("*.HDR")) + list(sector_raw_dir.glob("*.hdr"))
+        img_files = list(sector_raw_dir.glob("*.IMG")) + list(sector_raw_dir.glob("*.img"))
+
+        if not hdr_files or not img_files:
+            raise FileNotFoundError(f"Missing raw DEM (.HDR / .IMG) files in {sector_raw_dir}")
+
+        hdr_path = hdr_files[0]
+        img_path = img_files[0]
+
+        sector.state = SectorState.PROCESSING
+        sector.layers[LayerType.ELEVATION].status = LayerStatus.PROCESSING
+        sector.layers[LayerType.SLOPE].status = LayerStatus.PROCESSING
+        sector.layers[LayerType.ROUGHNESS].status = LayerStatus.PROCESSING
+        sector.updated_at = datetime.now(timezone.utc)
+
+        try:
+            # 1. Read global DEM
+            dem_data, envi_header = self.dem_reader.read_dem(hdr_path, img_path)
+
+            # 2. Crop to sector bounds with 1-pixel buffer for border gradient accuracy
+            cropped = self.dem_reader.crop_sector(dem_data, sector.bounds, buffer_pixels=1)
+
+            # 3. Compute Slope in degrees
+            slope_deg, elevation_grid, lats, lons = compute_slope(
+                cropped,
+                trim_buffer=True,
+                nodata_value=envi_header.data_ignore_value,
+            )
+
+            # 4. Compute Roughness (local std dev)
+            roughness_grid = compute_roughness(elevation_grid, window_size=3)
+
+            # 5. Export layers (JSON data + colorized PNG previews)
+            metadata_base = {
+                "source_file": img_path.name,
+                "mission": "MGS",
+                "instrument": "MOLA",
+                "coordinate_system": sector.coordinate_reference_system,
+                "mars_radius_m": self.dem_reader.MARS_RADIUS_METERS,
+                "dy_meters": float(cropped.dy_meters),
+                "resolution_deg": float(cropped.native_resolution_deg),
+            }
+
+            elev_export = self.layer_exporter.export_layer(
+                sector_id=sector_id,
+                layer_type="elevation",
+                grid=elevation_grid,
+                lats=lats,
+                lons=lons,
+                units="meters",
+                metadata={**metadata_base, "datum": "Mars Areoid (GMM3 / mgm1025)"},
+            )
+
+            slope_export = self.layer_exporter.export_layer(
+                sector_id=sector_id,
+                layer_type="slope",
+                grid=slope_deg,
+                lats=lats,
+                lons=lons,
+                units="degrees",
+                metadata={**metadata_base, "algorithm": "central_difference_planar_gradient"},
+            )
+
+            roughness_export = self.layer_exporter.export_layer(
+                sector_id=sector_id,
+                layer_type="roughness",
+                grid=roughness_grid,
+                lats=lats,
+                lons=lons,
+                units="meters",
+                metadata={**metadata_base, "algorithm": "elevation_std_dev_3x3"},
+            )
+
+            # 6. Update sector state
+            sector.layers[LayerType.ELEVATION].status = LayerStatus.READY
+            sector.layers[LayerType.ELEVATION].file_path = elev_export["json_path"]
+            sector.layers[LayerType.ELEVATION].resolution_m = float(cropped.dy_meters)
+
+            sector.layers[LayerType.SLOPE].status = LayerStatus.READY
+            sector.layers[LayerType.SLOPE].file_path = slope_export["json_path"]
+            sector.layers[LayerType.SLOPE].resolution_m = float(cropped.dy_meters)
+
+            sector.layers[LayerType.ROUGHNESS].status = LayerStatus.READY
+            sector.layers[LayerType.ROUGHNESS].file_path = roughness_export["json_path"]
+            sector.layers[LayerType.ROUGHNESS].resolution_m = float(cropped.dy_meters)
+
+            for lt in [LayerType.ELEVATION, LayerType.SLOPE, LayerType.ROUGHNESS]:
+                if lt not in sector.available_layers:
+                    sector.available_layers.append(lt)
+
+            # Minimum viable layer set for DISCOVERED is elevation + slope
+            sector.state = SectorState.DISCOVERED
+            sector.updated_at = datetime.now(timezone.utc)
+
+            return {
+                "sector_id": sector_id,
+                "state": sector.state.value,
+                "layers": {
+                    "elevation": elev_export,
+                    "slope": slope_export,
+                    "roughness": roughness_export,
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"Processing failed for sector {sector_id}: {e}")
+            sector.state = SectorState.FAILED
+            sector.layers[LayerType.ELEVATION].status = LayerStatus.FAILED
+            sector.layers[LayerType.SLOPE].status = LayerStatus.FAILED
             sector.error_message = str(e)
             sector.updated_at = datetime.now(timezone.utc)
             raise
