@@ -4,8 +4,12 @@ import type {
   LayerType,
   RouteComparisonResponse,
   RouteStrategy,
+  RoverMissionTraverse,
   Sector,
+  SectorWeatherCondition,
   StorageStatus,
+  StormSeverity,
+  SurfacePhoto,
   TerrainMesh,
 } from '../types/api';
 
@@ -142,5 +146,44 @@ export async function purgeSectorCache(
     }
   );
   if (!res.ok) throw new Error(`Failed to purge cache for ${sectorId}`);
+  return res.json();
+}
+
+export async function fetchRoverBenchmarkTraverse(sectorId: string): Promise<RoverMissionTraverse | null> {
+  const res = await fetch(`${API_BASE}/routes/benchmarks/${sectorId}`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function fetchGroundImagery(sectorId: string): Promise<SurfacePhoto[]> {
+  const res = await fetch(`${API_BASE}/sectors/${sectorId}/ground-imagery`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.photos || [];
+}
+
+export async function fetchSectorWeather(sectorId: string): Promise<SectorWeatherCondition> {
+  const res = await fetch(`${API_BASE}/weather/sector/${sectorId}`);
+  if (!res.ok) throw new Error(`Failed to fetch weather for sector ${sectorId}`);
+  return res.json();
+}
+
+export async function simulateSectorWeather(
+  sectorId: string,
+  severity: StormSeverity,
+  customCoords?: { lat?: number; lon?: number; radius_km?: number }
+): Promise<SectorWeatherCondition> {
+  const res = await fetch(`${API_BASE}/weather/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sector_id: sectorId,
+      severity,
+      custom_storm_lat: customCoords?.lat,
+      custom_storm_lon: customCoords?.lon,
+      custom_radius_km: customCoords?.radius_km,
+    }),
+  });
+  if (!res.ok) throw new Error(`Failed to configure storm simulation for sector ${sectorId}`);
   return res.json();
 }

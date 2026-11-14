@@ -171,3 +171,18 @@ async def get_sector_surface_texture(sector_id: str):
             detail=f"Surface texture not found for sector '{sector_id}'. Initiate exploration first.",
         )
     return FileResponse(texture_path, media_type="image/png")
+
+
+@router.get("/{sector_id}/ground-imagery")
+async def get_sector_ground_imagery(sector_id: str):
+    """
+    Retrieve in-situ surface photographs captured by NASA rovers (Perseverance / Curiosity)
+    tied to geographic coordinates within this sector.
+    """
+    from backend.app.services.ground_imagery_service import ground_imagery_service
+    photos = ground_imagery_service.get_photos_for_sector(sector_id)
+    return {
+        "sector_id": sector_id,
+        "count": len(photos),
+        "photos": [p.model_dump() for p in photos],
+    }

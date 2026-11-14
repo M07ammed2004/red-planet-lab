@@ -17,10 +17,14 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="header">
       <div className="header-left">
         <div className="logo-badge">
-          <span className="planet-icon">🔴</span>
+          <div className="logo-emblem-frame">
+            <img src="/assets/team-logo.png" alt="Red Planet Lab Logo" className="logo-img" />
+          </div>
           <div className="logo-text">
-            <span className="logo-title">RED PLANET LAB</span>
-            <span className="logo-sub">Multi-Mission Data Fusion & Exploration Planning</span>
+            <h1 className="logo-title">
+              Red Planet <b>Lab</b>
+            </h1>
+            <span className="logo-sub">Plan a rover road trip across Mars! · Multi-Mission Data Fusion</span>
           </div>
         </div>
       </div>
@@ -46,14 +50,19 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
       </nav>
 
-      <div className="header-right">
-        <div className="target-badge">
-          <span className="badge-label">TARGET:</span>
-          <span className="badge-val">{selectedSectorId}</span>
+      <div className="header-right chips">
+        <div className="chip">
+          <span className="live-bullet">●</span> Rover connected
         </div>
-        <div className={`status-indicator ${apiHealthy ? 'online' : 'offline'}`}>
+        <div className="chip o">
+          Mars day <b>Sol 54,342</b>
+        </div>
+        <div className="chip">
+          Target <b>{selectedSectorId}</b>
+        </div>
+        <div className={`chip status-indicator ${apiHealthy ? 'online' : 'offline'}`}>
           <span className="dot"></span>
-          <span>{apiHealthy ? 'TELEMETRY LIVE' : 'CONNECTING'}</span>
+          <b>{apiHealthy ? 'TELEMETRY LIVE' : 'CONNECTING'}</b>
         </div>
       </div>
     </header>

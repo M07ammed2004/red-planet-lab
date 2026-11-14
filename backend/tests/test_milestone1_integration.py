@@ -1,11 +1,16 @@
 from fastapi.testclient import TestClient
 from backend.app.main import app
+from backend.app.models.sector import SectorState
+from backend.app.services.sector_service import sector_service
 
 client = TestClient(app)
 
 
 def test_milestone1_discovery_and_download_pipeline():
-    # 1. Verify initial sector state
+    # 1. Verify initial sector state (reset if previously scouted in other tests)
+    sector = sector_service.get_sector("SEC-JEZERO-01")
+    if sector:
+        sector.state = SectorState.UNSCOUTED
     resp = client.get("/api/sectors/SEC-JEZERO-01")
     assert resp.status_code == 200
     assert resp.json()["state"] == "UNSCOUTED"

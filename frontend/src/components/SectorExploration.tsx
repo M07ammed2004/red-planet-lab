@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import type { Sector, TerrainMesh } from '../types/api';
+import type { RoverMissionTraverse, Sector, SurfacePhoto, TerrainMesh } from '../types/api';
 import {
+  fetchGroundImagery,
+  fetchRoverBenchmarkTraverse,
   fetchTerrainMesh,
   purgeSectorCache,
   startSectorExploration,
@@ -31,6 +33,12 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // In-situ ground photography & rover traverse state
+  const [photos, setPhotos] = useState<SurfacePhoto[]>([]);
+  const [selectedPhoto, setSelectedPhoto] = useState<SurfacePhoto | null>(null);
+  const [benchmark, setBenchmark] = useState<RoverMissionTraverse | null>(null);
+  const [showRoverTraverse, setShowRoverTraverse] = useState<boolean>(true);
+
   // Background Acquisition State
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [isAcquiring, setIsAcquiring] = useState<boolean>(false);
@@ -40,8 +48,29 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const mesh = await fetchTerrainMesh(sectorId);
-      setTerrainMesh(mesh);
+      const [meshRes, photoRes, benchRes] = await Promise.allSettled([
+        fetchTerrainMesh(sectorId),
+        fetchGroundImagery(sectorId),
+        fetchRoverBenchmarkTraverse(sectorId),
+      ]);
+
+      if (meshRes.status === 'fulfilled' && meshRes.value) {
+        setTerrainMesh(meshRes.value);
+      } else {
+        setTerrainMesh(null);
+      }
+
+      if (photoRes.status === 'fulfilled' && photoRes.value) {
+        setPhotos(photoRes.value);
+      } else {
+        setPhotos([]);
+      }
+
+      if (benchRes.status === 'fulfilled' && benchRes.value) {
+        setBenchmark(benchRes.value);
+      } else {
+        setBenchmark(null);
+      }
     } catch {
       setTerrainMesh(null);
     } finally {
@@ -168,6 +197,21 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
                 >
                   🌊 ROUGHNESS
                 </button>
+                <button
+                  className={`tab-pill ${layerMode === 'geology' ? 'active' : ''}`}
+                  onClick={() => setLayerMode('geology')}
+                >
+                  🌋 GEOLOGY (USGS)
+                </button>
+                {benchmark && (
+                  <button
+                    className={`tab-pill traverse-toggle ${showRoverTraverse ? 'active' : ''}`}
+                    onClick={() => setShowRoverTraverse(!showRoverTraverse)}
+                    title="Toggle NASA Historical Rover Traverse on 3D Terrain"
+                  >
+                    🚀 NASA TRAVERSE {showRoverTraverse ? 'ON' : 'OFF'}
+                  </button>
+                )}
               </div>
 
               {/* Viewport Display Modifiers */}
@@ -197,6 +241,34 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
               </div>
             </div>
 
+            {/* Ground-to-Orbit Fusion In-Situ Photo Strip */}
+            {photos.length > 0 && (
+              <div className="ground-fusion-toolbar">
+                <div className="fusion-tag-group">
+                  <span className="fusion-pulse-dot"></span>
+                  <span className="fusion-label">GROUND-TO-ORBIT FUSION:</span>
+                  <span className="fusion-count">{photos.length} IN-SITU SURFACE PHOTOGRAPHS</span>
+                  <span className="fusion-hint">(Click any thumbnail or 3D beacon to inspect)</span>
+                </div>
+                <div className="fusion-thumbnails-strip">
+                  {photos.map((photo) => (
+                    <div
+                      key={photo.photo_id}
+                      className="fusion-thumb-card"
+                      onClick={() => setSelectedPhoto(photo)}
+                      title={`Click to view in-situ Mastcam/Navcam observation: ${photo.target_name}`}
+                    >
+                      <img src={photo.image_url} alt={photo.target_name} className="fusion-thumb-img" />
+                      <div className="fusion-thumb-info">
+                        <span className="thumb-target">{photo.target_name}</span>
+                        <span className="thumb-meta">{photo.rover_name} • Sol {photo.sol}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 3D Terrain Viewport Card */}
             <div className="raster-viewport-card terrain-3d-card">
               <ThreeTerrainView
@@ -204,6 +276,11 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
                 layerMode={layerMode}
                 verticalExaggeration={verticalExaggeration}
                 wireframe={wireframe}
+                photos={photos}
+                onSelectPhoto={(p) => setSelectedPhoto(p)}
+                showRoverTraverse={showRoverTraverse}
+                roverPath={benchmark?.path_coords || []}
+                roverWaypoints={benchmark?.waypoints || []}
               />
 
               {/* Bottom Layer Dynamic Legend Bar */}
@@ -240,6 +317,15 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
                     <span>Rugged Boulder Field</span>
                   </div>
                 )}
+                {layerMode === 'geology' && (
+                  <div className="legend-row geology-legend">
+                    <span className="geol-chip" style={{ backgroundColor: '#eb8c28' }}>Delta Fan (Sedimentary Clay/Sandstone)</span>
+                    <span className="geol-chip" style={{ backgroundColor: '#784b91' }}>Basalt Plain (Olivine Volcanic)</span>
+                    <span className="geol-chip" style={{ backgroundColor: '#4ba596' }}>Mound Strata (Sulfate/Clay Bedding)</span>
+                    <span className="geol-chip" style={{ backgroundColor: '#b97355' }}>Noachian Rim Basement</span>
+                    <span className="geol-chip" style={{ backgroundColor: '#dcb94b' }}>Active Eolian Dunes</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -256,9 +342,16 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
                   </span>
                 </div>
                 <div className="stat-item">
-                  <span className="stat-label">SPATIAL RESOLUTION</span>
+                  <span className="stat-label">N-S / E-W RESOLUTION</span>
                   <span className="stat-val highlight">
-                    {terrainMesh.resolution_m_per_px.toFixed(1)} m/px (128 px/deg)
+                    {(terrainMesh.resolution_lat_m_per_px ?? terrainMesh.resolution_m_per_px).toFixed(1)} ×{' '}
+                    {(terrainMesh.resolution_lon_m_per_px ?? terrainMesh.resolution_m_per_px).toFixed(1)} m/px
+                  </span>
+                </div>
+                <div className="stat-item">
+                  <span className="stat-label">PHYSICAL ASPECT RATIO</span>
+                  <span className="stat-val highlight">
+                    {terrainMesh.aspect_ratio ? `${terrainMesh.aspect_ratio.toFixed(4)} (E-W scaled)` : '1.0000'}
                   </span>
                 </div>
                 <div className="stat-item">
@@ -370,6 +463,35 @@ export const SectorExploration: React.FC<SectorExplorationProps> = ({
             setActiveJobId(null);
           }}
         />
+      )}
+
+      {/* In-Situ NASA Surface Photo Modal (Ground-to-Orbit Fusion) */}
+      {selectedPhoto && (
+        <div className="surface-photo-modal-overlay" onClick={() => setSelectedPhoto(null)}>
+          <div className="surface-photo-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title-group">
+                <span className="modal-tag">NASA IN-SITU SURFACE OBSERVATION</span>
+                <h3>{selectedPhoto.target_name}</h3>
+                <span className="photo-coords">
+                  {selectedPhoto.lat.toFixed(4)}°N, {selectedPhoto.lon.toFixed(4)}°E • Sol {selectedPhoto.sol} ({selectedPhoto.earth_date})
+                </span>
+              </div>
+              <button className="modal-close-btn" onClick={() => setSelectedPhoto(null)}>✕</button>
+            </div>
+            <div className="modal-photo-container">
+              <img src={selectedPhoto.image_url} alt={selectedPhoto.target_name} className="surface-photo-img" />
+            </div>
+            <div className="modal-caption-bar">
+              <div className="cap-meta">
+                <span>ROVER: <strong>{selectedPhoto.rover_name}</strong></span>
+                <span>INSTRUMENT: <strong>{selectedPhoto.instrument}</strong></span>
+                <span>OPTICS: <strong>{selectedPhoto.filter_or_camera}</strong></span>
+              </div>
+              <p className="cap-text">{selectedPhoto.caption}</p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

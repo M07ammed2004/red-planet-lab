@@ -31,8 +31,21 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Find backend sector matching current selected region
-  const currentSector = sectors.find((s) => s.sector_id === selectedRegion?.id) || null;
+  // Find backend sector matching current selected region, with fallback while sectors load
+  const currentSector: Sector | null =
+    sectors.find((s) => s.sector_id === selectedRegion?.id) ||
+    (selectedRegion
+      ? ({
+          sector_id: selectedRegion.id,
+          name: selectedRegion.name,
+          bounds: selectedRegion.bounds,
+          center: selectedRegion.center,
+          area_km2: selectedRegion.area_km2,
+          state: 'READY',
+          resolution_m: 463.0,
+          source_products: [],
+        } as unknown as Sector)
+      : null);
 
   const handleStartAcquisition = (region: MarsRegion) => {
     setSelectedRegion(region);

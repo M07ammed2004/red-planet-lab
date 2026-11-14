@@ -4,6 +4,7 @@ import json
 import numpy as np
 from backend.app.core.config import settings
 from backend.app.models.sector import SectorBounds
+from backend.app.weather.atmospheric_service import atmospheric_service
 
 
 @dataclass
@@ -14,7 +15,12 @@ class TraversabilityGrid:
     slope: np.ndarray  # shape (rows, cols) in degrees
     roughness: np.ndarray  # shape (rows, cols) in meters
     risk: np.ndarray  # shape (rows, cols) normalized [0, 1]
+    scientific_interest: np.ndarray  # shape (rows, cols) normalized [0, 1]
     traversable: np.ndarray  # bool mask, True if safe to traverse
+    wind_speed: np.ndarray  # shape (rows, cols) in m/s
+    dust_tau: np.ndarray  # shape (rows, cols) dust optical depth
+    storm_hazard: np.ndarray  # shape (rows, cols) normalized [0, 1]
+    storm_obstacle_mask: np.ndarray  # bool mask, True if blocked by severe storm
     lats: np.ndarray  # 1D vector of latitude coordinates
     lons: np.ndarray  # 1D vector of longitude coordinates
     dy_meters: float  # spacing in meters along latitude
@@ -96,12 +102,69 @@ class TraversabilityBuilder:
         risk = 0.7 * slope_norm + 0.3 * rough_norm
         risk[~traversable] = 1.0  # max risk for untraversable
 
+        # Scientific interest modeling based on terrain topography & geological contacts:
+        # 1. Slope sweet-spot: bedrock strata and outcrops are exposed on moderate slopes (3° to 10°)
+        slope_sci = np.exp(-((slope_grid - 6.0) ** 2) / (2 * (3.5 ** 2)))
+
+        # 2. Topographic gradient / morphology (craters, scarps, deltas)
+        grad_y, grad_x = np.gradient(elev_grid)
+        grad_mag = np.sqrt(grad_y ** 2 + grad_x ** 2)
+        grad_max = float(np.percentile(grad_mag, 90)) + 1e-4
+        grad_norm = np.clip(grad_mag / grad_max, 0.0, 1.0)
+
+        # 3. Known Sector Geological Hotspots (POIs)
+        poi_map = np.zeros_like(elev_grid)
+        sec_upper = sector_id.upper()
+        if "JEZERO" in sec_upper:
+            target_pois = [(18.445, 77.450), (18.490, 77.370), (18.380, 77.530)]
+            for p_lat, p_lon in target_pois:
+                d_lat = (lats[:, None] - p_lat) / 0.15
+                d_lon = (lons[None, :] - p_lon) / 0.15
+                poi_map += np.exp(-(d_lat ** 2 + d_lon ** 2))
+        elif "GALE" in sec_upper:
+            target_pois = [(-4.68, 137.40), (-4.75, 137.38), (-4.62, 137.44)]
+            for p_lat, p_lon in target_pois:
+                d_lat = (lats[:, None] - p_lat) / 0.15
+                d_lon = (lons[None, :] - p_lon) / 0.15
+                poi_map += np.exp(-(d_lat ** 2 + d_lon ** 2))
+        elif "OLYMPUS" in sec_upper:
+            target_pois = [(18.55, 226.10), (18.65, 226.20)]
+            for p_lat, p_lon in target_pois:
+                d_lat = (lats[:, None] - p_lat) / 0.25
+                d_lon = (lons[None, :] - p_lon) / 0.25
+                poi_map += np.exp(-(d_lat ** 2 + d_lon ** 2))
+
+        max_poi = float(np.max(poi_map)) if np.size(poi_map) > 0 else 0.0
+        poi_norm = np.clip(poi_map / max(max_poi, 1e-4), 0.0, 1.0) if max_poi > 0 else np.zeros_like(elev_grid)
+
+        scientific_interest = np.clip(0.40 * slope_sci + 0.35 * grad_norm + 0.25 * poi_norm, 0.0, 1.0)
+        scientific_interest[~traversable] = 0.0
+
+        # Compute dynamic Martian wind and dust storm hazard fields
+        (
+            wind_speed,
+            dust_tau,
+            storm_hazard,
+            storm_obstacle_mask,
+        ) = atmospheric_service.compute_atmospheric_grids(
+            sector_id=sector_id,
+            lats=lats,
+            lons=lons,
+            elevation=elev_grid,
+            slope=slope_grid,
+        )
+
         return TraversabilityGrid(
             elevation=elev_grid,
             slope=slope_grid,
             roughness=rough_grid,
             risk=risk,
+            scientific_interest=scientific_interest,
             traversable=traversable,
+            wind_speed=wind_speed,
+            dust_tau=dust_tau,
+            storm_hazard=storm_hazard,
+            storm_obstacle_mask=storm_obstacle_mask,
             lats=lats,
             lons=lons,
             dy_meters=float(dy),

@@ -1,0 +1,32 @@
+2026-11-13 20:02:14.591: [INFO] CurrentProfilePath: d:\red-planet-lab\.edge_profile\Default
+2026-11-13 20:02:14.591: [INFO] Profiles total count: 1
+2026-11-13 20:02:14.591: [INFO] Profile: name=Profile 1 path=d:\red-planet-lab\.edge_profile\Default lastActive=null
+2026-11-13 20:02:14.591: [INFO] LastUsedProfileDir: d:\red-planet-lab\.edge_profile\Default
+2026-11-13 20:02:14.591: [INFO] VisibilityChanged: 0
+2026-11-13 20:02:14.714: [INFO] OnDoneLoading sync enabled: 0
+2026-11-13 20:02:14.714: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-11-13 20:02:14.714: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-11-13 20:02:14.714: [INFO] BookmarksSnapshot Startup total=0 bar=0 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-11-13 20:02:14.719: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-11-13 20:04:39.246: [INFO] CurrentProfilePath: d:\red-planet-lab\.edge_profile\Default
+2026-11-13 20:04:39.246: [INFO] Profiles total count: 1
+2026-11-13 20:04:39.246: [INFO] Profile: name=Profile 1 path=d:\red-planet-lab\.edge_profile\Default lastActive=2026-11-13T20:02:14.629Z
+2026-11-13 20:04:39.246: [INFO] LastUsedProfileDir: d:\red-planet-lab\.edge_profile\Default
+2026-11-13 20:04:39.246: [INFO] MostRecentlyActiveProfile: name=Profile 1 path=d:\red-planet-lab\.edge_profile\Default lastActive=2026-11-13T20:02:14.629Z
+2026-11-13 20:04:39.246: [INFO] VisibilityChanged: 0
+2026-11-13 20:04:39.312: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-11-13 20:04:39.313: [INFO] OnDoneLoading sync enabled: 0
+2026-11-13 20:04:39.313: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-11-13 20:04:39.313: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-11-13 20:04:39.313: [INFO] BookmarksSnapshot Startup total=0 bar=0 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-11-13 21:59:57.053: [INFO] CurrentProfilePath: d:\red-planet-lab\.edge_profile\Default
+2026-11-13 21:59:57.053: [INFO] Profiles total count: 1
+2026-11-13 21:59:57.053: [INFO] Profile: name=Profile 1 path=d:\red-planet-lab\.edge_profile\Default lastActive=2026-11-13T20:04:39.279Z
+2026-11-13 21:59:57.053: [INFO] LastUsedProfileDir: d:\red-planet-lab\.edge_profile\Default
+2026-11-13 21:59:57.053: [INFO] MostRecentlyActiveProfile: name=Profile 1 path=d:\red-planet-lab\.edge_profile\Default lastActive=2026-11-13T20:04:39.279Z
+2026-11-13 21:59:57.053: [INFO] VisibilityChanged: 0
+2026-11-13 21:59:57.211: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-11-13 21:59:57.212: [INFO] OnDoneLoading sync enabled: 0
+2026-11-13 21:59:57.212: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-11-13 21:59:57.212: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-11-13 21:59:57.212: [INFO] BookmarksSnapshot Startup total=0 bar=0 other=0 mobile=0 showBar=0 showBarNTP=1

@@ -6,6 +6,7 @@ from backend.app.models.route import (
     RouteStrategy,
 )
 from backend.app.route_planning.astar import AStarPlanner
+from backend.app.route_planning.rover_traverses import get_rover_traverse
 from backend.app.route_planning.traversability import TraversabilityBuilder
 from backend.app.services.sector_service import sector_service
 
@@ -48,20 +49,39 @@ class RoutePlanningService:
         # Generate comparative summary
         fastest = routes.get(RouteStrategy.FASTEST)
         safest = routes.get(RouteStrategy.SAFEST)
+        scientific = routes.get(RouteStrategy.SCIENTIFIC_EXPLORATION)
 
+        parts = []
         if fastest and safest and fastest.feasible and safest.feasible:
             dist_diff = safest.total_distance_km - fastest.total_distance_km
             slope_diff = fastest.avg_slope_deg - safest.avg_slope_deg
-            summary = (
-                f"Comparison: The Safest route adds {dist_diff:.2f} km of travel distance "
-                f"({safest.total_distance_km:.2f} km vs {fastest.total_distance_km:.2f} km), "
-                f"reducing average slope exposure by {slope_diff:.2f}° "
-                f"(average slope: {safest.avg_slope_deg:.2f}° vs {fastest.avg_slope_deg:.2f}°)."
+            parts.append(
+                f"The Safest route adds {dist_diff:.2f} km ({safest.total_distance_km:.2f} km vs {fastest.total_distance_km:.2f} km), "
+                f"reducing average slope by {slope_diff:.2f}° ({safest.avg_slope_deg:.2f}° vs {fastest.avg_slope_deg:.2f}°)."
             )
-        elif fastest and fastest.feasible:
-            summary = f"Fastest route feasible ({fastest.total_distance_km:.2f} km). Safest route evaluated."
-        else:
-            summary = "One or more route strategies could not find a traversable path within configured limits."
+
+        if scientific and scientific.feasible:
+            parts.append(
+                f"The Scientific Exploration route ({scientific.total_distance_km:.2f} km) unlocks high-value research targets "
+                f"(ROI: {scientific.scientific_roi_score}, {len(scientific.scientific_targets_visited)} geological strata/outcrops visited)."
+            )
+
+        if safest and safest.feasible and safest.storm_hazard_avoided:
+            parts.append(
+                f"Atmospheric Hazard Response: Safest corridor diverted around active Martian dust storm core (max wind: {safest.max_wind_speed_ms:.1f} m/s, avg tau: {safest.avg_dust_opacity_tau:.2f})."
+            )
+
+        summary = " | ".join(parts) if parts else "One or more route strategies could not find a traversable path within configured limits."
+
+        # Check for historical NASA rover benchmark traverse
+        benchmark = get_rover_traverse(request.sector_id)
+        benchmark_data = benchmark.model_dump() if benchmark else None
+
+        if benchmark_data and safest and safest.feasible:
+            summary += (
+                f" NASA Benchmark: {benchmark.rover_name} completed a {benchmark.total_distance_km:.1f} km "
+                f"historical traverse across this sector ({benchmark.landing_site_name})."
+            )
 
         return RouteComparisonResponse(
             sector_id=request.sector_id,
@@ -69,6 +89,7 @@ class RoutePlanningService:
             destination_coords=request.destination_coords,
             routes=routes,
             summary=summary,
+            benchmark_traverse=benchmark_data,
         )
 
 

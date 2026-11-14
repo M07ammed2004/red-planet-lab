@@ -95,6 +95,45 @@ export interface LayerData {
   exported_at: string;
 }
 
+export type StormSeverity = 'CALM' | 'MODERATE_DUST' | 'SEVERE_STORM' | 'GLOBAL_EVENT';
+
+export interface WindVector {
+  speed_ms: number;
+  direction_deg: number;
+  gust_ms: number;
+  u_component: number;
+  v_component: number;
+}
+
+export interface StormCell {
+  cell_id: string;
+  name: string;
+  center_lat: number;
+  center_lon: number;
+  radius_km: number;
+  severity: StormSeverity;
+  max_wind_speed_ms: number;
+  optical_depth_tau: number;
+  dust_density_g_m3: number;
+  is_active: boolean;
+}
+
+export interface SectorWeatherCondition {
+  sector_id: string;
+  sol: number;
+  local_mars_time: string;
+  solar_longitude_ls: number;
+  air_temperature_c: number;
+  ground_temperature_c: number;
+  atmospheric_pressure_pa: number;
+  dust_optical_depth_tau: number;
+  prevailing_wind: WindVector;
+  storm_severity: StormSeverity;
+  active_storms: StormCell[];
+  atmospheric_density_kg_m3: number;
+  sensor_station_name: string;
+}
+
 export type RouteStrategy = 'FASTEST' | 'SAFEST' | 'SCIENTIFIC_EXPLORATION';
 
 export interface Waypoint {
@@ -104,6 +143,11 @@ export interface Waypoint {
   slope_deg: number;
   risk_score: number;
   cumulative_distance_km: number;
+  scientific_value?: number;
+  science_target_name?: string | null;
+  wind_speed_ms?: number;
+  dust_tau?: number;
+  storm_hazard_level?: number;
 }
 
 export interface RouteResult {
@@ -119,14 +163,59 @@ export interface RouteResult {
   waypoints: Waypoint[];
   explanation: string;
   limitations_note: string;
+  scientific_roi_score?: number;
+  scientific_targets_visited?: string[];
+  max_wind_speed_ms?: number;
+  avg_dust_opacity_tau?: number;
+  storm_hazard_avoided?: boolean;
+  storm_status?: string;
+}
+
+export interface RoverWaypoint {
+  sol: number;
+  name: string;
+  lat: number;
+  lon: number;
+  elevation_m: number;
+  description: string;
+  target_type: string;
+}
+
+export interface RoverMissionTraverse {
+  mission_id: string;
+  rover_name: string;
+  sector_id: string;
+  landing_site_name: string;
+  total_distance_km: number;
+  start_coords: [number, number];
+  destination_coords: [number, number];
+  waypoints: RoverWaypoint[];
+  path_coords: [number, number][];
+  scientific_summary: string;
+}
+
+export interface SurfacePhoto {
+  photo_id: string;
+  mission: string;
+  rover_name: string;
+  instrument: string;
+  sol: number;
+  earth_date: string;
+  lat: number;
+  lon: number;
+  target_name: string;
+  image_url: string;
+  caption: string;
+  filter_or_camera: string;
 }
 
 export interface RouteComparisonResponse {
   sector_id: string;
   start_coords: [number, number];
   destination_coords: [number, number];
-  routes: Record<RouteStrategy, RouteResult>;
+  routes: Partial<Record<RouteStrategy, RouteResult>>;
   summary: string;
+  benchmark_traverse?: RoverMissionTraverse | null;
 }
 
 export interface TerrainMesh {
@@ -134,6 +223,11 @@ export interface TerrainMesh {
   bounds: SectorBounds;
   dimensions: [number, number];
   resolution_m_per_px: number;
+  resolution_lat_m_per_px?: number;
+  resolution_lon_m_per_px?: number;
+  aspect_ratio?: number;
+  physical_width_meters?: number;
+  physical_height_meters?: number;
   coordinate_system: string;
   elevation_stats: {
     min: number;
@@ -157,6 +251,7 @@ export interface TerrainMesh {
   elevation_colormap_url: string;
   slope_colormap_url: string;
   roughness_colormap_url: string;
+  geology_colormap_url?: string;
   elevation_grid: number[][];
   slope_grid: number[][];
   roughness_grid: number[][];

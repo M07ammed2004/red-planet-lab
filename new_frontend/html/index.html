@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Red Planet Lab</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../css/style.css">
+<link rel="icon" type="image/png" href="../assets/team-logo.png">
+</head><body>
+<header><div class="logo"><img src="../assets/team-logo.png" alt="Red Planet Lab team logo"></div><div><h1>Red Planet <b>Lab</b></h1><small>Plan a rover road trip across Mars!</small></div>
+<div class="chips"><div class="chip">● Rover connected</div><div class="chip o">Mars day<b id="sol">Sol 54,342</b></div><div class="chip">Mars time<b id="mt">02:20</b></div><div class="chip">Earth time<b id="et">2:45 PM</b></div></div></header>
+<main>
+<aside>
+<div class="card"><h3><span class="ic">◎</span>Plan Your Trip</h3>
+<div class="step"><i>1</i>Tap the map to pick a spot</div>
+<div class="tog"><button class="tb s" id="mS">⌖ Start</button><button class="tb on" id="mG">⚑ Goal</button></div>
+<div class="lb b">Start spot</div><div class="xy"><label>X<input id="sx" type="number"></label><label>Y<input id="sy" type="number"></label></div>
+<div class="lb o">Goal spot</div><div class="xy"><label>X<input id="gx" type="number"></label><label>Y<input id="gy" type="number"></label></div>
+<button class="swap" id="swap">⇄ Swap them</button>
+<div class="step" style="margin-top:10px"><i>2</i>Choose a robot brain</div>
+<div id="algs"></div>
+<div class="lb" style="display:flex;justify-content:space-between">Speedy or careful?<span id="wv" style="background:#ffe6dc;color:var(--or);border-radius:8px;padding:1px 6px">60%</span></div>
+<input type="range" id="w" min="0" max="100" value="60"><div class="st"><span style="width:auto">Shortest path</span><span style="width:auto">Safest path</span></div>
+<div class="sw">Show the robot thinking<input type="checkbox" id="think" checked></div>
+<button class="go" id="go">▶ Let's Go!</button>
+<div class="two"><button class="tb" id="clr">⟲ Clear</button><button class="tb" id="nm" style="background:#e8f4fd;color:var(--bl)">⟳ New Map</button></div>
+<div class="cap" style="text-align:center">Map number <span id="mn">1247</span></div></div>
+<div class="card"><h3>Meet Curio the Rover</h3><div class="cur"><svg width="110" height="70" viewBox="0 0 110 70"><rect x="30" y="22" width="50" height="22" rx="6" fill="#e9eef3"/><rect x="40" y="8" width="26" height="18" rx="5" fill="#fff"/><circle cx="53" cy="17" r="5" fill="#0a80d4"/><rect x="12" y="26" width="16" height="9" fill="#f4b92c"/><rect x="82" y="26" width="16" height="9" fill="#f4b92c"/><g fill="#2b2340"><circle cx="38" cy="52" r="9"/><circle cx="56" cy="54" r="9"/><circle cx="74" cy="52" r="9"/></g><g fill="#ee5a1f"><circle cx="38" cy="52" r="3"/><circle cx="56" cy="54" r="3"/><circle cx="74" cy="52" r="3"/></g></svg></div>
+<div class="cg"><div>Battery<b id="bat">87%</b></div><div>Outside<b>-63°C brr!</b></div><div>Top speed<b>0.4 km/h</b></div><div>Mood<b>Curious</b></div></div></div>
+</aside>
+<section>
+<div class="stats">
+<div class="card"><div class="st">Distance<span style="background:#ffe6dc">⇄</span></div><div class="big" style="color:var(--or)"><b id="vd">–</b> <small>km</small></div><div class="bar"><i id="bd" style="background:var(--or);width:0"></i></div><div class="cap" id="cd">Pick a path!</div></div>
+<div class="card"><div class="st">Survival Rate<span style="background:#dcefff">♡</span></div><div class="big" style="color:var(--bl)"><b id="vs">–</b> <small>%</small></div><div class="bar"><i id="bs" style="background:var(--bl);width:0"></i></div><div class="cap" id="cs">Super safe trip!</div></div>
+<div class="card"><div class="st">Hazard Level<span style="background:#dcefff">⚠</span></div><div class="big" style="color:var(--bl)"><b id="vh">–</b></div><div class="bar"><i id="bh" style="background:var(--bl);width:0"></i></div><div class="cap" id="ch">Danger score</div></div>
+<div class="card"><div class="st">Energy Used<span style="background:#fdeccb">⚡</span></div><div class="big" style="color:var(--or)"><b id="ve">–</b> <small>kWh</small></div><div class="bar"><i id="be" style="background:var(--yl);width:0"></i></div><div class="cap" id="ce">Of the battery</div></div>
+</div>
+<div class="card" style="margin-top:10px"><div class="mh"><span>◈ Mars Map · Jezero Crater</span><span class="pill" id="pf" style="visibility:hidden">Path found!</span></div>
+<canvas id="cv" width="1080" height="720"></canvas>
+<div class="foot"><span id="spot">Hover the map…</span><span class="lg"><span><i style="width:14px;height:3px;background:var(--bl)"></i>Path</span><span><i style="width:7px;height:7px;border-radius:50%;background:var(--yl)"></i>Checked</span><span><i style="width:8px;height:8px;background:#e5683a"></i>Danger</span><span><i style="width:8px;height:8px;background:repeating-linear-gradient(45deg,#777 0 1px,transparent 1px 3px)"></i>Too steep</span></span></div></div>
+</section>
+<aside>
+<div class="card"><h3><span class="ic">▲</span>Hills &amp; Valleys</h3><svg id="el" viewBox="0 0 220 70" style="width:100%;background:#e3f3fd;border-radius:8px"></svg>
+<div class="mini"><div>Climbing<b id="cl">–</b></div><div>Steepest<b id="sp">–</b></div><div>Trip score<b id="ts">–</b></div></div></div>
+<div class="card"><h3><span class="ic">🏆</span>Robot Brain Race</h3><table><thead><tr><th>Brain</th><th>Squares checked</th><th>km</th><th>Safety</th></tr></thead><tbody id="race"></tbody></table></div>
+<div class="card"><h3><span class="ic">💬</span>Rover Diary</h3><div id="diary"></div></div>
+</aside></main>
+<section class="sector-hub" id="sectorHub">
+  <div class="hub-heading"><div><span class="hub-kicker">MISSION CONTROL · DATA EXPLORER</span><h2>Choose your next <em>Mars sector</em></h2><p>Pick a region, inspect its terrain coverage, and prepare it for Curio’s next outing.</p></div><div class="hub-count"><span>◉</span> 4 storybook regions</div></div>
+  <div class="hub-layout">
+    <div class="sector-rail"><div class="rail-title">ORBITAL SECTOR GRID <span>04 REGIONS</span></div><div id="sectorList" class="sector-list"></div></div>
+    <div class="sector-detail" id="sectorDetail"></div>
+  </div>
+  <div class="api-note" id="apiNote"><span class="note-mark">i</span><span><b>Demo interface — data services not connected.</b> The supplied React component calls backend APIs for NASA/PDS discovery, DEM downloads and processing. This standalone game has no such backend yet, so these controls show integration status instead of claiming to retrieve real data.</span></div>
+</section>
+<script src="../javascript/app.js"></script></body></html>

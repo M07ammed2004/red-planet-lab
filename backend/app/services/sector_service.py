@@ -109,6 +109,15 @@ class SectorService:
                 },
             )
 
+        # Synchronize sector states with existing processed assets on disk
+        for sec in self._sectors.values():
+            if self.is_sector_ready_3d(sec.sector_id):
+                sec.state = SectorState.DISCOVERED
+                for lt in [LayerType.ELEVATION, LayerType.SLOPE, LayerType.ROUGHNESS, LayerType.IMAGERY]:
+                    sec.layers[lt].status = LayerStatus.READY
+                    if lt not in sec.available_layers:
+                        sec.available_layers.append(lt)
+
     def get_sectors(self) -> list[Sector]:
         """Return all registered sectors."""
         return list(self._sectors.values())

@@ -1,15 +1,30 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import type { TerrainMesh } from '../../types/api';
+import type { RoverWaypoint, StormCell, SurfacePhoto, TerrainMesh } from '../../types/api';
 
-export type TerrainLayerMode = 'visible' | 'elevation' | 'slope' | 'roughness';
+export type TerrainLayerMode = 'visible' | 'elevation' | 'slope' | 'roughness' | 'geology';
 
 interface ThreeTerrainViewProps {
   mesh: TerrainMesh;
   layerMode: TerrainLayerMode;
   verticalExaggeration: number;
   wireframe: boolean;
+  photos?: SurfacePhoto[];
+  onSelectPhoto?: (photo: SurfacePhoto) => void;
+  roverPath?: [number, number][];
+  roverWaypoints?: RoverWaypoint[];
+  showRoverTraverse?: boolean;
+  plannedRoutes?: {
+    fastest?: [number, number][];
+    safest?: [number, number][];
+    scientific?: [number, number][];
+  };
+  startPoint?: [number, number] | null;
+  destPoint?: [number, number] | null;
+  stormCells?: StormCell[];
+  showStormLayer?: boolean;
+  onPickPoint?: (coords: [number, number]) => void;
   onProbeUpdate?: (probe: {
     lat: number;
     lon: number;
@@ -24,6 +39,17 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
   layerMode,
   verticalExaggeration,
   wireframe,
+  photos = [],
+  onSelectPhoto,
+  roverPath = [],
+  roverWaypoints = [],
+  showRoverTraverse = true,
+  plannedRoutes,
+  startPoint,
+  destPoint,
+  stormCells = [],
+  showStormLayer = true,
+  onPickPoint,
   onProbeUpdate,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -33,6 +59,9 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
   const controlsRef = useRef<OrbitControls | null>(null);
   const terrainMeshRef = useRef<THREE.Mesh | null>(null);
   const probeMarkerRef = useRef<THREE.Mesh | null>(null);
+  const photoBeaconsGroupRef = useRef<THREE.Group | null>(null);
+  const routesGroupRef = useRef<THREE.Group | null>(null);
+  const stormsGroupRef = useRef<THREE.Group | null>(null);
   const texturesRef = useRef<Record<string, THREE.Texture>>({});
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const mouseRef = useRef<THREE.Vector2>(new THREE.Vector2());
@@ -46,6 +75,8 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
     screenX: number;
     screenY: number;
   } | null>(null);
+
+  const [hoveredPhoto, setHoveredPhoto] = useState<SurfacePhoto | null>(null);
 
   // Initialize Three.js Scene
   useEffect(() => {
@@ -129,6 +160,16 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
     const animate = () => {
       animId = requestAnimationFrame(animate);
       controls.update();
+
+      // Dynamic rotation for Martian storm vortexes
+      if (stormsGroupRef.current) {
+        stormsGroupRef.current.children.forEach((child) => {
+          if (child.userData?.isStormVortex) {
+            child.rotation.y += 0.015;
+          }
+        });
+      }
+
       renderer.render(scene, camera);
     };
     animate();
@@ -163,17 +204,25 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
       elevation: mesh.elevation_colormap_url,
       slope: mesh.slope_colormap_url,
       roughness: mesh.roughness_colormap_url,
+      geology: mesh.geology_colormap_url || mesh.elevation_colormap_url,
     };
 
     Object.entries(urls).forEach(([mode, url]) => {
-      loader.load(url, (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.generateMipmaps = true;
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        texturesRef.current[mode] = tex;
-        updateTerrainMaterial();
-      });
+      loader.load(
+        url,
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          texturesRef.current[mode] = tex;
+          updateTerrainMaterial();
+        },
+        undefined,
+        (err) => {
+          console.warn(`Could not load texture for layer ${mode} (${url}):`, err);
+        }
+      );
     });
   }, [mesh.sector_id]);
 
@@ -190,8 +239,15 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
     }
 
     const [rows, cols] = mesh.dimensions;
-    const planeSize = 100; // Base spatial footprint in Three.js world units
-    const geometry = new THREE.PlaneGeometry(planeSize, planeSize, cols - 1, rows - 1);
+    // Calculate physical aspect ratio (E-W / N-S) accounting for latitude-dependent meridian convergence
+    const centerLatRad = ((mesh.bounds.min_lat + mesh.bounds.max_lat) / 2.0) * (Math.PI / 180.0);
+    const aspect =
+      mesh.aspect_ratio ??
+      (Math.cos(centerLatRad) * ((mesh.bounds.max_lon - mesh.bounds.min_lon) / (mesh.bounds.max_lat - mesh.bounds.min_lat)));
+
+    const planeHeight = 100; // Base North-South footprint in Three.js world units
+    const planeWidth = 100 * aspect; // Geographically scaled East-West footprint
+    const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight, cols - 1, rows - 1);
 
     // Rotate plane so X is East, Z is South, Y is Up
     geometry.rotateX(-Math.PI / 2);
@@ -231,7 +287,300 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
     terrainMesh.castShadow = true;
     scene.add(terrainMesh);
     terrainMeshRef.current = terrainMesh;
-  }, [mesh, verticalExaggeration]);
+
+    // Helper to map geographic (lat, lon) to Three.js world coordinates on the displaced terrain
+    const coordToWorld = (lat: number, lon: number, yOffset: number = 0.5): THREE.Vector3 | null => {
+      const u = (lon - mesh.bounds.min_lon) / (mesh.bounds.max_lon - mesh.bounds.min_lon);
+      const v = (lat - mesh.bounds.min_lat) / (mesh.bounds.max_lat - mesh.bounds.min_lat);
+      if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+      const x = (u - 0.5) * planeWidth;
+      const z = (0.5 - v) * planeHeight;
+      const r = Math.min(rows - 1, Math.max(0, Math.floor((1 - v) * (rows - 1))));
+      const c = Math.min(cols - 1, Math.max(0, Math.floor(u * (cols - 1))));
+      const normH = (elev[r][c] - minElev) / elevRange;
+      const y = normH * baseElevationHeight * verticalExaggeration + yOffset;
+      return new THREE.Vector3(x, y, z);
+    };
+
+    // 1. Group for all mission routes, markers & waypoints
+    if (routesGroupRef.current) {
+      scene.remove(routesGroupRef.current);
+      routesGroupRef.current = null;
+    }
+    const routesGroup = new THREE.Group();
+
+    // Render NASA Rover Ground Truth Traverse Path (Golden Line)
+    if (showRoverTraverse && roverPath && roverPath.length > 1) {
+      const pathPoints: THREE.Vector3[] = roverPath
+        .map(([pLat, pLon]) => coordToWorld(pLat, pLon, 0.7))
+        .filter(Boolean) as THREE.Vector3[];
+
+      if (pathPoints.length > 1) {
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pathPoints);
+        const lineMat = new THREE.LineBasicMaterial({ color: 0xffd700, linewidth: 4 });
+        routesGroup.add(new THREE.Line(lineGeo, lineMat));
+      }
+    }
+
+    // Render NASA Rover Waypoint Pins (Gold Dodecahedrons)
+    if (showRoverTraverse && roverWaypoints && roverWaypoints.length > 0) {
+      roverWaypoints.forEach((wp) => {
+        const pos = coordToWorld(wp.lat, wp.lon, 1.4);
+        if (pos) {
+          const wpGeo = new THREE.DodecahedronGeometry(1.2);
+          const wpMat = new THREE.MeshStandardMaterial({
+            color: 0xffd700,
+            emissive: 0xffb300,
+            emissiveIntensity: 0.8,
+            metalness: 0.5,
+          });
+          const wpMesh = new THREE.Mesh(wpGeo, wpMat);
+          wpMesh.position.copy(pos);
+          wpMesh.userData = { waypoint: wp };
+          routesGroup.add(wpMesh);
+        }
+      });
+    }
+
+    // Render A* Fastest Route (Cyan Line)
+    if (plannedRoutes?.fastest && plannedRoutes.fastest.length > 1) {
+      const pts = plannedRoutes.fastest
+        .map(([pLat, pLon]) => coordToWorld(pLat, pLon, 0.8))
+        .filter(Boolean) as THREE.Vector3[];
+      if (pts.length > 1) {
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color: 0x00e5ff, linewidth: 3 });
+        routesGroup.add(new THREE.Line(geo, mat));
+      }
+    }
+
+    // Render A* Safest Route (Emerald Green Line)
+    if (plannedRoutes?.safest && plannedRoutes.safest.length > 1) {
+      const pts = plannedRoutes.safest
+        .map(([pLat, pLon]) => coordToWorld(pLat, pLon, 0.9))
+        .filter(Boolean) as THREE.Vector3[];
+      if (pts.length > 1) {
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color: 0x00e676, linewidth: 4 });
+        routesGroup.add(new THREE.Line(geo, mat));
+      }
+    }
+
+    // Render A* Scientific Exploration Route (Amber / Orange with Science Waypoint Beacons)
+    if (plannedRoutes?.scientific && plannedRoutes.scientific.length > 1) {
+      const pts = plannedRoutes.scientific
+        .map(([pLat, pLon]) => coordToWorld(pLat, pLon, 1.05))
+        .filter(Boolean) as THREE.Vector3[];
+      if (pts.length > 1) {
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color: 0xffa000, linewidth: 4 });
+        routesGroup.add(new THREE.Line(geo, mat));
+
+        // Place science waypoint markers along the scientific route
+        pts.forEach((pt, i) => {
+          if (i > 0 && i < pts.length - 1 && i % 3 === 0) {
+            const sciGeo = new THREE.IcosahedronGeometry(0.9, 0);
+            const sciMat = new THREE.MeshStandardMaterial({
+              color: 0xffb300,
+              emissive: 0xff6f00,
+              emissiveIntensity: 0.9,
+              metalness: 0.7,
+              roughness: 0.2,
+            });
+            const sciMesh = new THREE.Mesh(sciGeo, sciMat);
+            sciMesh.position.copy(pt);
+            routesGroup.add(sciMesh);
+          }
+        });
+      }
+    }
+
+    // Start Position Pin (Green Sphere)
+    if (startPoint) {
+      const pos = coordToWorld(startPoint[0], startPoint[1], 1.6);
+      if (pos) {
+        const sGeo = new THREE.SphereGeometry(1.6, 16, 16);
+        const sMat = new THREE.MeshStandardMaterial({
+          color: 0x00e676,
+          emissive: 0x00c853,
+          emissiveIntensity: 0.9,
+        });
+        const sMesh = new THREE.Mesh(sGeo, sMat);
+        sMesh.position.copy(pos);
+        routesGroup.add(sMesh);
+      }
+    }
+
+    // Destination Position Pin (Red Cone / Flag)
+    if (destPoint) {
+      const pos = coordToWorld(destPoint[0], destPoint[1], 1.8);
+      if (pos) {
+        const dGeo = new THREE.ConeGeometry(1.6, 3.2, 16);
+        const dMat = new THREE.MeshStandardMaterial({
+          color: 0xff1744,
+          emissive: 0xd50000,
+          emissiveIntensity: 0.9,
+        });
+        const dMesh = new THREE.Mesh(dGeo, dMat);
+        dMesh.position.copy(pos);
+        routesGroup.add(dMesh);
+      }
+    }
+
+    scene.add(routesGroup);
+    routesGroupRef.current = routesGroup;
+
+    // 2. Render In-Situ Surface Camera Beacons (Golden Octahedrons with Glow Rings)
+    if (photoBeaconsGroupRef.current) {
+      scene.remove(photoBeaconsGroupRef.current);
+      photoBeaconsGroupRef.current = null;
+    }
+    const beaconGroup = new THREE.Group();
+    photos.forEach((photo) => {
+      const pos = coordToWorld(photo.lat, photo.lon, 1.8);
+      if (pos) {
+        const bGeo = new THREE.OctahedronGeometry(1.8, 0);
+        const bMat = new THREE.MeshStandardMaterial({
+          color: 0xffd700,
+          emissive: 0xff9100,
+          emissiveIntensity: 0.9,
+          metalness: 0.8,
+          roughness: 0.2,
+        });
+        const bMesh = new THREE.Mesh(bGeo, bMat);
+        bMesh.position.copy(pos);
+        bMesh.userData = { photo };
+
+        // Outer pulsing target ring
+        const ringGeo = new THREE.RingGeometry(2.2, 2.7, 24);
+        ringGeo.rotateX(-Math.PI / 2);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xffd700,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.6,
+        });
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.position.copy(pos);
+        ringMesh.position.y -= 0.5;
+
+        beaconGroup.add(bMesh);
+        beaconGroup.add(ringMesh);
+      }
+    });
+    scene.add(beaconGroup);
+    photoBeaconsGroupRef.current = beaconGroup;
+
+    // 3. Render Active Martian Dust Storms & Vortexes
+    if (stormsGroupRef.current) {
+      scene.remove(stormsGroupRef.current);
+      stormsGroupRef.current = null;
+    }
+    if (showStormLayer && stormCells && stormCells.length > 0) {
+      const stormsGroup = new THREE.Group();
+      const totalKmNs = (mesh.bounds.max_lat - mesh.bounds.min_lat) * 59.27;
+      const sceneUnitsPerKm = totalKmNs > 0 ? planeHeight / totalKmNs : 1.0;
+
+      stormCells.forEach((storm) => {
+        if (!storm.is_active) return;
+        const pos = coordToWorld(storm.center_lat, storm.center_lon, 0.5);
+        if (!pos) return;
+
+        const stormRadiusScene = Math.max(storm.radius_km * sceneUnitsPerKm, 4.0);
+
+        // A. Outer Swirling Dust Vortex Cylinder
+        const vortexGeo = new THREE.CylinderGeometry(
+          stormRadiusScene * 1.15,
+          stormRadiusScene * 0.95,
+          18.0 * verticalExaggeration,
+          32,
+          1,
+          true
+        );
+        const vortexMat = new THREE.MeshBasicMaterial({
+          color: 0xd96b50,
+          transparent: true,
+          opacity: 0.28,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const vortexMesh = new THREE.Mesh(vortexGeo, vortexMat);
+        vortexMesh.position.set(pos.x, pos.y + 9.0 * verticalExaggeration, pos.z);
+        vortexMesh.userData = { isStormVortex: true };
+        stormsGroup.add(vortexMesh);
+
+        // B. Inner Core Cone (Dense Dust Eye - Obstacle Zone)
+        const eyeRadius = stormRadiusScene * 0.55;
+        const eyeGeo = new THREE.ConeGeometry(eyeRadius, 14.0 * verticalExaggeration, 24, 1, true);
+        const eyeMat = new THREE.MeshBasicMaterial({
+          color: 0xff3d00,
+          transparent: true,
+          opacity: 0.42,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
+        const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
+        eyeMesh.rotation.x = Math.PI; // upside-down funnel vortex
+        eyeMesh.position.set(pos.x, pos.y + 7.0 * verticalExaggeration, pos.z);
+        eyeMesh.userData = { isStormVortex: true };
+        stormsGroup.add(eyeMesh);
+
+        // C. Ground Hazard Exclusion Perimeter Ring (Red warning boundary)
+        const ringGeo = new THREE.RingGeometry(stormRadiusScene * 0.52, stormRadiusScene * 0.58, 48);
+        ringGeo.rotateX(-Math.PI / 2);
+        const ringMat = new THREE.MeshBasicMaterial({
+          color: 0xff1744,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.85,
+        });
+        const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        ringMesh.position.set(pos.x, pos.y + 0.2, pos.z);
+        stormsGroup.add(ringMesh);
+
+        // D. Outer Wind Shear Ring
+        const windRingGeo = new THREE.RingGeometry(stormRadiusScene * 0.98, stormRadiusScene * 1.02, 48);
+        windRingGeo.rotateX(-Math.PI / 2);
+        const windRingMat = new THREE.MeshBasicMaterial({
+          color: 0xff9800,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.5,
+        });
+        const windRingMesh = new THREE.Mesh(windRingGeo, windRingMat);
+        windRingMesh.position.set(pos.x, pos.y + 0.15, pos.z);
+        stormsGroup.add(windRingMesh);
+
+        // E. Floating Storm Center Marker (Pulsing Diamond)
+        const markerGeo = new THREE.OctahedronGeometry(1.6, 0);
+        const markerMat = new THREE.MeshStandardMaterial({
+          color: 0xff3d00,
+          emissive: 0xd50000,
+          emissiveIntensity: 0.9,
+          wireframe: true,
+        });
+        const markerMesh = new THREE.Mesh(markerGeo, markerMat);
+        markerMesh.position.set(pos.x, pos.y + 19.0 * verticalExaggeration, pos.z);
+        markerMesh.userData = { isStormVortex: true };
+        stormsGroup.add(markerMesh);
+      });
+
+      scene.add(stormsGroup);
+      stormsGroupRef.current = stormsGroup;
+    }
+  }, [
+    mesh,
+    verticalExaggeration,
+    roverPath,
+    roverWaypoints,
+    showRoverTraverse,
+    plannedRoutes,
+    startPoint,
+    destPoint,
+    photos,
+    stormCells,
+    showStormLayer,
+  ]);
 
   // Update material texture or wireframe mode on prop change
   const updateTerrainMaterial = () => {
@@ -307,11 +656,52 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
       setActiveProbe(null);
       if (onProbeUpdate) onProbeUpdate(null);
     }
+
+    // Check hover over in-situ camera beacons
+    if (photoBeaconsGroupRef.current) {
+      const beaconHits = raycasterRef.current.intersectObjects(photoBeaconsGroupRef.current.children);
+      if (beaconHits.length > 0 && beaconHits[0].object.userData?.photo) {
+        setHoveredPhoto(beaconHits[0].object.userData.photo);
+      } else {
+        setHoveredPhoto(null);
+      }
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cameraRef.current) return;
+    const container = mountRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycasterRef.current.setFromCamera(new THREE.Vector2(x, y), cameraRef.current);
+
+    // 1. Check in-situ camera beacon hit
+    if (photoBeaconsGroupRef.current && onSelectPhoto) {
+      const hits = raycasterRef.current.intersectObjects(photoBeaconsGroupRef.current.children);
+      if (hits.length > 0 && hits[0].object.userData?.photo) {
+        onSelectPhoto(hits[0].object.userData.photo);
+        return;
+      }
+    }
+
+    // 2. Check terrain hit for coordinate picking
+    if (onPickPoint && terrainMeshRef.current) {
+      const terrainHits = raycasterRef.current.intersectObject(terrainMeshRef.current);
+      if (terrainHits.length > 0 && terrainHits[0].uv) {
+        const uv = terrainHits[0].uv!;
+        const lat = Number((mesh.bounds.max_lat - (1 - uv.y) * (mesh.bounds.max_lat - mesh.bounds.min_lat)).toFixed(4));
+        const lon = Number((mesh.bounds.min_lon + uv.x * (mesh.bounds.max_lon - mesh.bounds.min_lon)).toFixed(4));
+        onPickPoint([lat, lon]);
+      }
+    }
   };
 
   const handlePointerLeave = () => {
     if (probeMarkerRef.current) probeMarkerRef.current.visible = false;
     setActiveProbe(null);
+    setHoveredPhoto(null);
     if (onProbeUpdate) onProbeUpdate(null);
   };
 
@@ -327,8 +717,17 @@ export const ThreeTerrainView: React.FC<ThreeTerrainViewProps> = ({
       className="three-terrain-container"
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
+      onClick={handleClick}
     >
       <div ref={mountRef} className="three-terrain-canvas" />
+
+      {/* In-situ photo hover pill */}
+      {hoveredPhoto && (
+        <div className="photo-beacon-tooltip">
+          <span>📷 {hoveredPhoto.target_name}</span>
+          <small>Sol {hoveredPhoto.sol} • {hoveredPhoto.instrument} (Click to view)</small>
+        </div>
+      )}
 
       {/* Floating 3D Probe HUD Badge */}
       {activeProbe && (

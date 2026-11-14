@@ -1,0 +1,221 @@
+{
+  "item_1": {
+    "status": "PASS",
+    "backend_health": {
+      "status": "ok",
+      "version": "0.1.0",
+      "timestamp": "2026-11-11T19:54:53.287693Z",
+      "storage": {
+        "raw_dir": true,
+        "processed_dir": true,
+        "cache_dir": true,
+        "metadata_dir": true
+      }
+    },
+    "frontend_status": 200,
+    "storage": {
+      "disk": {
+        "total_bytes": 20970467328,
+        "free_bytes": 5705461760,
+        "used_bytes": 15265005568,
+        "free_gb": 5.31,
+        "used_gb": 14.22
+      },
+      "tiers": {
+        "raw_bytes": 2272310,
+        "raw_mb": 2.17,
+        "processed_bytes": 15210646,
+        "processed_mb": 14.51,
+        "cache_bytes": 21,
+        "cache_mb": 0.0,
+        "metadata_bytes": 2990,
+        "metadata_mb": 0.0
+      },
+      "limits": {
+        "max_sector_download_mb": 500,
+        "max_cache_total_mb": 2048
+      }
+    }
+  },
+  "item_2": {
+    "status": "PASS",
+    "sector": {
+      "sector_id": "SEC-JEZERO-01",
+      "name": "Jezero Crater (Delta & Crater Floor)",
+      "bounds": {
+        "min_lat": 18.0,
+        "max_lat": 19.0,
+        "min_lon": 77.0,
+        "max_lon": 78.0
+      },
+      "center": [
+        18.38,
+        77.58
+      ],
+      "area_km2": 3520.0,
+      "coordinate_reference_system": "IAU2000:49900",
+      "state": "DISCOVERED",
+      "created_at": "2026-11-11T16:31:38.877155Z",
+      "updated_at": "2026-11-11T16:43:45.754746Z",
+      "last_scan_at": null,
+      "available_layers": [
+        "elevation",
+        "slope",
+        "roughness",
+        "imagery"
+      ],
+      "missing_layers": [],
+      "layers": {
+        "elevation": {
+          "layer_type": "elevation",
+          "status": "READY",
+          "source_product_id": null,
+          "file_path": null,
+          "resolution_m": null,
+          "last_updated": null,
+          "error_message": null
+        },
+        "imagery": {
+          "layer_type": "imagery",
+          "status": "READY",
+          "source_product_id": null,
+          "file_path": null,
+          "resolution_m": null,
+          "last_updated": null,
+          "error_message": null
+        },
+        "slope": {
+          "layer_type": "slope",
+          "status": "READY",
+          "source_product_id": null,
+          "file_path": null,
+          "resolution_m": null,
+          "last_updated": null,
+          "error_message": null
+        },
+        "roughness": {
+          "layer_type": "roughness",
+          "status": "READY",
+          "source_product_id": null,
+          "file_path": null,
+          "resolution_m": null,
+          "last_updated": null,
+          "error_message": null
+        },
+        "risk": {
+          "layer_type": "risk",
+          "status": "NOT_CHECKED",
+          "source_product_id": null,
+          "file_path": null,
+          "resolution_m": null,
+          "last_updated": null,
+          "error_message": null
+        },
+        "scientific_interest": {
+          "layer_type": "scientific_interest",
+          "status": "NOT_CHECKED",
+          "source_product_id": null,
+          "file_path": null,
+          "resolution_m": null,
+          "last_updated": null,
+          "error_message": null
+        }
+      },
+      "source_products": [],
+      "estimated_download_bytes": 0,
+      "processing_version": "0.1.0",
+      "error_message": null
+    }
+  },
+  "item_3": {
+    "status": "PASS",
+    "response": {
+      "status": "READY",
+      "sector_id": "SEC-JEZERO-01",
+      "message": "High-resolution 3D terrain already reconstructed in local storage."
+    }
+  },
+  "item_4": {
+    "status": "PASS",
+    "raw_slice_bytes": 33024,
+    "mesh_bytes": 775564,
+    "texture_bytes": 238507,
+    "quadrant_id": "megt44n000hb"
+  },
+  "item_5": {
+    "status": "PASS",
+    "min_elevation_m": -2907.0,
+    "max_elevation_m": -1402.0,
+    "mean_elevation_m": -2249.710205078125,
+    "relief_m": 1505.0,
+    "scientific_validation": "Matches USGS / NASA MOLA topography of Jezero Crater floor (-2.9 km) to rim (-1.4 km)."
+  },
+  "item_6": {
+    "status": "PASS",
+    "dimensions": [
+      129,
+      128
+    ],
+    "resolution_m_per_px": 463.08,
+    "bounds": {
+      "min_lat": 18.0,
+      "max_lat": 19.0,
+      "min_lon": 77.0,
+      "max_lon": 78.0
+    },
+    "center_elevation_m": -2567.0
+  },
+  "item_7": {
+    "status": "PASS",
+    "texture_url": "/api/sectors/SEC-JEZERO-01/texture",
+    "bytes": 238507,
+    "alignment": "Tile bounds calculated from Mars Trek Level 6 (2.8125 deg) precisely cropped to [18-19\u00b0N, 77-78\u00b0E]."
+  },
+  "item_8": {
+    "status": "PASS",
+    "probe_hud_telemetry": {
+      "title": "SURFACE TELEMETRY PROBE",
+      "coordinates": "18.3115\u00b0N, 77.4987\u00b0E",
+      "elevation_m": -2661.0,
+      "slope_deg": 0.06,
+      "roughness_m": 3.73
+    },
+    "screenshots": [
+      "01_mars_globe_overview.png",
+      "02_terrain_3d_visible_mosaic.png",
+      "03_terrain_3d_elevation_colormap.png",
+      "04_terrain_3d_slope_traversability.png",
+      "05_terrain_3d_roughness.png",
+      "06_terrain_3d_wireframe.png",
+      "07_terrain_3d_exaggeration_3x.png",
+      "08_terrain_3d_rotated_orbit.png",
+      "09_terrain_3d_probe_hud.png"
+    ]
+  },
+  "item_9": {
+    "status": "PASS",
+    "sector_id": "SEC-GALE-01",
+    "elevation_stats": {
+      "min": -4533.0,
+      "max": 787.0,
+      "mean": -2724.910888671875,
+      "std": 1036.8302001953125
+    },
+    "dimensions": [
+      129,
+      128
+    ],
+    "screenshot": "10_gale_crater_3d.png"
+  },
+  "item_10": {
+    "status": "PASS",
+    "status_code": 200,
+    "response": {
+      "status": "READY",
+      "sector_id": "SEC-JEZERO-01",
+      "message": "High-resolution 3D terrain already reconstructed in local storage."
+    },
+    "elapsed_ms": 720.4,
+    "cached_reuse_confirmed": true
+  }
+}

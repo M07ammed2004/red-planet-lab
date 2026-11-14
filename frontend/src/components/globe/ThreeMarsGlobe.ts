@@ -1,10 +1,22 @@
 import * as THREE from 'three';
-import { type MarsRegion, MARS_REGIONS } from '../../types/globe';
+import {
+  type MarsRegion,
+  MARS_REGIONS,
+  type UsgsMartianLandmark,
+  USGS_MARTIAN_NOMENCLATURE,
+  type MartianFeatureCategory,
+} from '../../types/globe';
+import type { Sector } from '../../types/api';
 import { latLonToVector3 } from '../../services/marsCoordinates';
 
 export interface GlobeCallbacks {
-  onHoverRegion: (region: MarsRegion | null, screenPos?: { x: number; y: number }) => void;
-  onSelectRegion: (region: MarsRegion) => void;
+  onHoverItem: (
+    item: { type: 'landmark'; data: UsgsMartianLandmark } | { type: 'region'; data: MarsRegion; sector?: Sector } | null,
+    screenPos?: { x: number; y: number }
+  ) => void;
+  onSelectItem: (
+    item: { type: 'landmark'; data: UsgsMartianLandmark } | { type: 'region'; data: MarsRegion; sector?: Sector }
+  ) => void;
 }
 
 export class ThreeMarsGlobe {
@@ -13,21 +25,35 @@ export class ThreeMarsGlobe {
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private globeGroup: THREE.Group;
+  private sectorPatchesGroup: THREE.Group;
+  private landmarksGroup: THREE.Group;
   private raycaster: THREE.Raycaster;
   private mouse: THREE.Vector2;
 
   // Globe parameters
   private readonly GLOBE_RADIUS = 5.0;
-  private regionObjects: Map<string, { group: THREE.Group; hitMesh: THREE.Mesh; region: MarsRegion }> = new Map();
   private callbacks: GlobeCallbacks;
+
+  // Tracked objects for raycasting
+  private hitObjects: Map<
+    THREE.Object3D,
+    { type: 'landmark'; data: UsgsMartianLandmark } | { type: 'region'; data: MarsRegion }
+  > = new Map();
+
+  private landmarkBeacons: Map<string, { group: THREE.Group; landmark: UsgsMartianLandmark }> = new Map();
+  private sectorObjects: Map<string, { patch?: THREE.Mesh; border: THREE.Line; region: MarsRegion }> = new Map();
 
   // Interaction state
   private isDragging = false;
   private previousMousePosition = { x: 0, y: 0 };
-  private rotationVelocity = { x: 0, y: 0.0012 }; // default slow idle spin
+  private rotationVelocity = { x: 0, y: 0.0012 }; // slow idle spin
   private targetRotation: { x: number; y: number } | null = null;
   private animationFrameId: number | null = null;
-  private hoveredRegionId: string | null = null;
+  private hoveredHitMesh: THREE.Object3D | null = null;
+
+  // Filtering
+  private activeCategory: MartianFeatureCategory | 'ALL' | 'SECTORS' = 'ALL';
+  private currentSectors: Sector[] = [];
 
   constructor(container: HTMLElement, callbacks: GlobeCallbacks) {
     this.container = container;
@@ -39,32 +65,39 @@ export class ThreeMarsGlobe {
     const height = container.clientHeight || window.innerHeight;
 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    this.camera.position.set(0, 2.5, 14.5);
+    this.camera.position.set(0, 0, 13.5);
 
     // 2. Renderer
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.container.appendChild(this.renderer.domElement);
 
-    // 3. Raycaster
+    // 3. Raycaster & Mouse
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2(-999, -999);
 
-    // 4. Globe Root Group
+    // 4. Globe Groups
     this.globeGroup = new THREE.Group();
     // Tilt Mars axis to its physical obliquity (25.19 degrees)
     this.globeGroup.rotation.z = THREE.MathUtils.degToRad(-25.19);
     this.scene.add(this.globeGroup);
 
-    // 5. Construct Scene
+    this.sectorPatchesGroup = new THREE.Group();
+    this.globeGroup.add(this.sectorPatchesGroup);
+
+    this.landmarksGroup = new THREE.Group();
+    this.globeGroup.add(this.landmarksGroup);
+
+    // 5. Construct Visuals
     this.buildStarfield();
     this.buildLighting();
     this.buildMarsSphere();
     this.buildCoordinateGrid();
     this.buildAtmosphereGlow();
-    this.buildRegionBeacons();
+    this.buildLandmarkBeacons();
+    this.buildSectorFootprints();
 
     // 6. Bind Event Listeners
     this.bindEvents();
@@ -80,7 +113,6 @@ export class ThreeMarsGlobe {
     const colors = new Float32Array(starCount * 3);
 
     for (let i = 0; i < starCount; i++) {
-      // Distribute in a spherical shell (radius 70 to 180)
       const u = Math.random();
       const v = Math.random();
       const theta = u * 2.0 * Math.PI;
@@ -95,14 +127,13 @@ export class ThreeMarsGlobe {
       positions[i * 3 + 1] = y;
       positions[i * 3 + 2] = z;
 
-      // Color tints: slight cyan, amber, white
       const tint = Math.random();
       if (tint > 0.8) {
-        colors[i * 3] = 0.7; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 1.0; // soft cyan
+        colors[i * 3] = 0.7; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 1.0;
       } else if (tint > 0.6) {
-        colors[i * 3] = 1.0; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 0.7; // soft amber
+        colors[i * 3] = 1.0; colors[i * 3 + 1] = 0.85; colors[i * 3 + 2] = 0.7;
       } else {
-        colors[i * 3] = 0.9; colors[i * 3 + 1] = 0.92; colors[i * 3 + 2] = 0.95; // white
+        colors[i * 3] = 0.9; colors[i * 3 + 1] = 0.92; colors[i * 3 + 2] = 0.95;
       }
     }
 
@@ -121,52 +152,57 @@ export class ThreeMarsGlobe {
   }
 
   private buildLighting() {
-    // Sun key light illuminating from top-right
-    const sunLight = new THREE.DirectionalLight(0xfff3e0, 2.2);
-    sunLight.position.set(20, 15, 20);
+    // Warm Sun direct light - natural solar radiance in Mars orbit
+    const sunLight = new THREE.DirectionalLight(0xfff8ee, 2.8);
+    sunLight.position.set(24, 12, 18);
     this.scene.add(sunLight);
 
-    // Deep space fill light (subtle blue-purple bounce)
-    const fillLight = new THREE.DirectionalLight(0x283b5e, 0.6);
-    fillLight.position.set(-20, -10, -20);
+    // Subtle soft fill light for realism on limb
+    const fillLight = new THREE.DirectionalLight(0x7598b2, 0.55);
+    fillLight.position.set(-20, -8, -18);
     this.scene.add(fillLight);
 
-    // Ambient space light
-    const ambient = new THREE.AmbientLight(0x121620, 0.8);
+    // Warm ambient light so topographical features and landmarks across Mars remain clearly visible
+    const ambient = new THREE.AmbientLight(0xffeedd, 0.75);
     this.scene.add(ambient);
   }
 
   private buildMarsSphere() {
-    // 1. Translucent Base Mars Body
-    const sphereGeometry = new THREE.SphereGeometry(this.GLOBE_RADIUS, 64, 64);
+    // 1. Authentic realistic Martian surface texture map (SolarSystemScope / NASA MOLA-Viking 2K)
+    const textureLoader = new THREE.TextureLoader();
+    const marsTexture = textureLoader.load('/textures/mars_realistic_2k.jpg');
+    marsTexture.colorSpace = THREE.SRGBColorSpace;
+    marsTexture.wrapS = THREE.RepeatWrapping;
+    marsTexture.wrapT = THREE.ClampToEdgeWrapping;
+
+    const sphereGeometry = new THREE.SphereGeometry(this.GLOBE_RADIUS, 96, 96);
+    // Align texture Prime Meridian (0 deg East) with latLonToVector3 mathematical coordinates
+    sphereGeometry.rotateY(-Math.PI);
+
     const sphereMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1f0e08, // Dark rust tone
-      roughness: 0.65,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.88,
+      map: marsTexture,
+      roughness: 0.82,
+      metalness: 0.04,
     });
     const marsBody = new THREE.Mesh(sphereGeometry, sphereMaterial);
     this.globeGroup.add(marsBody);
 
-    // 2. Geometric Wireframe Outer Crust
-    const wireframeGeometry = new THREE.IcosahedronGeometry(this.GLOBE_RADIUS * 1.002, 4);
-    const wireframeMaterial = new THREE.MeshBasicMaterial({
-      color: 0x3d1c10, // subtle dark reddish wireframe
-      wireframe: true,
+    // 2. Delicate atmospheric Rayleigh scattering haze layer
+    const hazeGeometry = new THREE.SphereGeometry(this.GLOBE_RADIUS * 1.003, 64, 64);
+    const hazeMaterial = new THREE.MeshBasicMaterial({
+      color: 0xd97555,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.06,
+      blending: THREE.AdditiveBlending,
     });
-    const crustMesh = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
-    this.globeGroup.add(crustMesh);
+    this.globeGroup.add(new THREE.Mesh(hazeGeometry, hazeMaterial));
   }
 
   private buildCoordinateGrid() {
-    // Latitude rings (parallels)
-    const latInterval = 15;
-    for (let lat = -75; lat <= 75; lat += latInterval) {
+    // Parallels (Latitude lines)
+    for (let lat = -75; lat <= 75; lat += 15) {
       const isEquator = lat === 0;
-      const radiusAtLat = this.GLOBE_RADIUS * Math.cos(THREE.MathUtils.degToRad(lat)) * 1.003;
+      const radiusAtLat = this.GLOBE_RADIUS * Math.cos(THREE.MathUtils.degToRad(lat)) * 1.002;
       const yPos = this.GLOBE_RADIUS * Math.sin(THREE.MathUtils.degToRad(lat));
 
       const ringGeometry = new THREE.BufferGeometry();
@@ -180,19 +216,17 @@ export class ThreeMarsGlobe {
       ringGeometry.setFromPoints(points);
 
       const ringMaterial = new THREE.LineBasicMaterial({
-        color: isEquator ? 0xf27036 : 0x2a394d,
+        color: isEquator ? 0xefbd61 : 0xead8c6,
         transparent: true,
-        opacity: isEquator ? 0.75 : 0.35,
+        opacity: isEquator ? 0.75 : 0.22,
         linewidth: isEquator ? 2 : 1,
       });
 
-      const line = new THREE.Line(ringGeometry, ringMaterial);
-      this.globeGroup.add(line);
+      this.globeGroup.add(new THREE.Line(ringGeometry, ringMaterial));
     }
 
-    // Longitude rings (meridians)
-    const lonInterval = 30;
-    for (let lon = 0; lon < 360; lon += lonInterval) {
+    // Meridians (Longitude lines)
+    for (let lon = 0; lon < 360; lon += 30) {
       const isPrime = lon === 0;
       const ringGeometry = new THREE.BufferGeometry();
       const points: THREE.Vector3[] = [];
@@ -200,29 +234,24 @@ export class ThreeMarsGlobe {
 
       for (let i = 0; i <= segments; i++) {
         const lat = -90 + (i / segments) * 180;
-        const pt = latLonToVector3(lat, lon, this.GLOBE_RADIUS * 1.003);
-        points.push(pt);
+        points.push(latLonToVector3(lat, lon, this.GLOBE_RADIUS * 1.002));
       }
       ringGeometry.setFromPoints(points);
 
       const ringMaterial = new THREE.LineBasicMaterial({
-        color: isPrime ? 0x00e5ff : 0x2a394d,
+        color: isPrime ? 0x438c91 : 0xead8c6,
         transparent: true,
-        opacity: isPrime ? 0.75 : 0.3,
+        opacity: isPrime ? 0.75 : 0.2,
       });
 
-      const line = new THREE.Line(ringGeometry, ringMaterial);
-      this.globeGroup.add(line);
+      this.globeGroup.add(new THREE.Line(ringGeometry, ringMaterial));
     }
   }
 
   private buildAtmosphereGlow() {
-    // Outer atmospheric glow shell
-    const glowGeometry = new THREE.SphereGeometry(this.GLOBE_RADIUS * 1.08, 48, 48);
+    const glowGeometry = new THREE.SphereGeometry(this.GLOBE_RADIUS * 1.07, 48, 48);
     const glowMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        color: { value: new THREE.Color(0xf2542d) },
-      },
+      uniforms: { color: { value: new THREE.Color(0xd96b50) } },
       vertexShader: `
         varying vec3 vNormal;
         void main() {
@@ -234,8 +263,8 @@ export class ThreeMarsGlobe {
         uniform vec3 color;
         varying vec3 vNormal;
         void main() {
-          float intensity = pow(0.65 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.2);
-          gl_FragColor = vec4(color, intensity * 0.45);
+          float intensity = pow(0.68 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+          gl_FragColor = vec4(color, intensity * 0.42);
         }
       `,
       blending: THREE.AdditiveBlending,
@@ -244,23 +273,26 @@ export class ThreeMarsGlobe {
       depthWrite: false,
     });
 
-    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-    this.scene.add(glowMesh);
+    this.scene.add(new THREE.Mesh(glowGeometry, glowMaterial));
   }
 
-  private buildRegionBeacons() {
-    MARS_REGIONS.forEach((region) => {
+  // --- USGS Nomenclature Landmark Beacons ---
+  private buildLandmarkBeacons() {
+    this.landmarksGroup.clear();
+    this.landmarkBeacons.clear();
+
+    USGS_MARTIAN_NOMENCLATURE.forEach((landmark) => {
       const group = new THREE.Group();
-      const pos = latLonToVector3(region.center[0], region.center[1], this.GLOBE_RADIUS);
+      const pos = latLonToVector3(landmark.center[0], landmark.center[1], this.GLOBE_RADIUS);
       const normal = pos.clone().normalize();
 
       group.position.copy(pos);
       group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
 
-      const colorHex = parseInt(region.color.replace('#', '0x'), 16);
+      const colorHex = parseInt(landmark.color.replace('#', '0x'), 16);
 
-      // 1. Target boundary ring on the surface
-      const ringGeo = new THREE.RingGeometry(0.18, 0.24, 32);
+      // 1. Surface footprint ring
+      const ringGeo = new THREE.RingGeometry(0.14, 0.18, 24);
       ringGeo.rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({
         color: colorHex,
@@ -272,41 +304,204 @@ export class ThreeMarsGlobe {
       ringMesh.position.y = 0.02;
       group.add(ringMesh);
 
-      // 2. Vertical beacon pin
-      const pinGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.6, 8);
-      pinGeo.translate(0, 0.3, 0);
-      const pinMat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.75,
-      });
-      const pinMesh = new THREE.Mesh(pinGeo, pinMat);
-      group.add(pinMesh);
+      // 2. Vertical tactical beacon
+      const pinGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.45, 8);
+      pinGeo.translate(0, 0.225, 0);
+      const pinMat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.85 });
+      group.add(new THREE.Mesh(pinGeo, pinMat));
 
-      // 3. Glowing beacon head
-      const headGeo = new THREE.SphereGeometry(0.08, 16, 16);
-      headGeo.translate(0, 0.6, 0);
+      // 3. Glowing landmark beacon head
+      const headGeo = new THREE.SphereGeometry(0.065, 12, 12);
+      headGeo.translate(0, 0.45, 0);
       const headMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const headMesh = new THREE.Mesh(headGeo, headMat);
-      group.add(headMesh);
+      group.add(new THREE.Mesh(headGeo, headMat));
 
-      // 4. Invisible hit-sphere for reliable mouse raycasting
-      const hitGeo = new THREE.SphereGeometry(0.65, 12, 12);
+      // 4. Raycast hit target
+      const hitGeo = new THREE.SphereGeometry(0.45, 8, 8);
       const hitMat = new THREE.MeshBasicMaterial({ visible: false });
       const hitMesh = new THREE.Mesh(hitGeo, hitMat);
-      hitMesh.position.y = 0.3;
-      hitMesh.userData = { regionId: region.id };
+      hitMesh.position.y = 0.22;
       group.add(hitMesh);
 
-      this.globeGroup.add(group);
-      this.regionObjects.set(region.id, { group, hitMesh, region });
+      this.landmarksGroup.add(group);
+      this.landmarkBeacons.set(landmark.id, { group, landmark });
+      this.hitObjects.set(hitMesh, { type: 'landmark', data: landmark });
     });
+  }
+
+  // --- Exploration Sector Curved Patches & Bounding Footprints ---
+  private buildSectorFootprints() {
+    this.sectorPatchesGroup.clear();
+    this.sectorObjects.clear();
+
+    MARS_REGIONS.forEach((region) => {
+      const b = region.bounds;
+      const matchingSector = this.currentSectors.find((s) => s.sector_id === region.id);
+      const isScouted = matchingSector?.state === 'DISCOVERED';
+
+      const colorHex = isScouted ? 0x00e5ff : 0x475569;
+
+      // 1. Curved perimeter boundary line
+      const border = this.createCurvedSectorBorder(b.min_lat, b.max_lat, b.min_lon, b.max_lon, this.GLOBE_RADIUS * 1.005, colorHex, isScouted);
+      this.sectorPatchesGroup.add(border);
+
+      let patchMesh: THREE.Mesh | undefined;
+
+      // 2. If scouted, drape real processed elevation/mosaic texture patch on the sphere surface
+      if (isScouted) {
+        const patchGeo = this.createCurvedSectorGeometry(b.min_lat, b.max_lat, b.min_lon, b.max_lon, this.GLOBE_RADIUS * 1.006, 16);
+        const textureUrl = `/api/sectors/${region.id}/layers/elevation/preview`;
+        const tex = new THREE.TextureLoader().load(textureUrl);
+        tex.colorSpace = THREE.SRGBColorSpace;
+
+        const patchMat = new THREE.MeshStandardMaterial({
+          map: tex,
+          roughness: 0.65,
+          metalness: 0.1,
+          side: THREE.FrontSide,
+        });
+
+        patchMesh = new THREE.Mesh(patchGeo, patchMat);
+        this.sectorPatchesGroup.add(patchMesh);
+      }
+
+      // 3. Invisible hit mesh for clicking sector on globe
+      const centerPos = latLonToVector3(region.center[0], region.center[1], this.GLOBE_RADIUS * 1.01);
+      const hitGeo = new THREE.SphereGeometry(0.7, 8, 8);
+      const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+      const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+      hitMesh.position.copy(centerPos);
+      this.sectorPatchesGroup.add(hitMesh);
+
+      this.sectorObjects.set(region.id, { patch: patchMesh, border, region });
+      this.hitObjects.set(hitMesh, { type: 'region', data: region });
+    });
+  }
+
+  private createCurvedSectorGeometry(
+    min_lat: number,
+    max_lat: number,
+    min_lon: number,
+    max_lon: number,
+    radius: number,
+    segments: number = 16
+  ): THREE.BufferGeometry {
+    const geo = new THREE.BufferGeometry();
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+
+    for (let j = 0; j <= segments; j++) {
+      const v = j / segments;
+      const lat = min_lat + v * (max_lat - min_lat);
+      for (let i = 0; i <= segments; i++) {
+        const u = i / segments;
+        const lon = min_lon + u * (max_lon - min_lon);
+        const pt = latLonToVector3(lat, lon, radius);
+        positions.push(pt.x, pt.y, pt.z);
+        uvs.push(u, v);
+      }
+    }
+
+    for (let j = 0; j < segments; j++) {
+      for (let i = 0; i < segments; i++) {
+        const a = j * (segments + 1) + i;
+        const b = j * (segments + 1) + i + 1;
+        const c = (j + 1) * (segments + 1) + i;
+        const d = (j + 1) * (segments + 1) + i + 1;
+        indices.push(a, b, c);
+        indices.push(b, d, c);
+      }
+    }
+
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    return geo;
+  }
+
+  private createCurvedSectorBorder(
+    min_lat: number,
+    max_lat: number,
+    min_lon: number,
+    max_lon: number,
+    radius: number,
+    color: number,
+    isScouted: boolean
+  ): THREE.Line {
+    const pts: THREE.Vector3[] = [];
+    const segs = 12;
+
+    // South edge (West to East)
+    for (let i = 0; i <= segs; i++) pts.push(latLonToVector3(min_lat, min_lon + (i / segs) * (max_lon - min_lon), radius));
+    // East edge (South to North)
+    for (let i = 0; i <= segs; i++) pts.push(latLonToVector3(min_lat + (i / segs) * (max_lat - min_lat), max_lon, radius));
+    // North edge (East to West)
+    for (let i = 0; i <= segs; i++) pts.push(latLonToVector3(max_lat, max_lon - (i / segs) * (max_lon - min_lon), radius));
+    // West edge (North to South)
+    for (let i = 0; i <= segs; i++) pts.push(latLonToVector3(max_lat - (i / segs) * (max_lat - min_lat), min_lon, radius));
+
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+    const lineMat = new THREE.LineBasicMaterial({
+      color,
+      linewidth: isScouted ? 2.5 : 1,
+      transparent: true,
+      opacity: isScouted ? 0.95 : 0.45,
+    });
+    return new THREE.Line(lineGeo, lineMat);
+  }
+
+  // --- External State Updates ---
+  public updateSectors(sectors: Sector[]) {
+    this.currentSectors = sectors;
+    this.buildSectorFootprints();
+  }
+
+  public setCategoryFilter(category: MartianFeatureCategory | 'ALL' | 'SECTORS') {
+    this.activeCategory = category;
+
+    // Filter landmark beacons
+    this.landmarkBeacons.forEach(({ group, landmark }) => {
+      if (category === 'SECTORS') {
+        group.visible = false;
+      } else if (category === 'ALL') {
+        group.visible = true;
+      } else {
+        group.visible = landmark.category === category;
+      }
+    });
+
+    // Filter sectors
+    this.sectorPatchesGroup.visible = category === 'ALL' || category === 'SECTORS';
+  }
+
+  public flyTo(lat: number, lon: number) {
+    const latRad = THREE.MathUtils.degToRad(lat);
+    const lonRad = THREE.MathUtils.degToRad(lon);
+
+    this.targetRotation = {
+      y: -(lonRad + Math.PI / 2),
+      x: latRad,
+    };
+  }
+
+  public selectRegion(region: MarsRegion) {
+    this.flyTo(region.center[0], region.center[1]);
+  }
+
+  public selectLandmark(landmark: UsgsMartianLandmark) {
+    this.flyTo(landmark.center[0], landmark.center[1]);
+  }
+
+  public resetRotation() {
+    this.targetRotation = null;
+    this.rotationVelocity = { x: 0, y: 0.0012 };
   }
 
   // --- Interaction & Event Handling ---
   private bindEvents() {
     const el = this.renderer.domElement;
-
     el.addEventListener('pointerdown', this.onPointerDown.bind(this));
     window.addEventListener('pointermove', this.onPointerMove.bind(this));
     window.addEventListener('pointerup', this.onPointerUp.bind(this));
@@ -329,34 +524,32 @@ export class ThreeMarsGlobe {
       const deltaX = e.clientX - this.previousMousePosition.x;
       const deltaY = e.clientY - this.previousMousePosition.y;
 
-      // Update rotation
       this.globeGroup.rotation.y += deltaX * 0.005;
       this.globeGroup.rotation.x += deltaY * 0.005;
-
-      // Clamp X tilt to prevent gimbal inversion
       this.globeGroup.rotation.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this.globeGroup.rotation.x));
 
       this.rotationVelocity = { x: deltaY * 0.001, y: deltaX * 0.001 };
       this.previousMousePosition = { x: e.clientX, y: e.clientY };
     } else {
-      // Raycast for hover
       this.checkIntersection(e.clientX, e.clientY);
     }
   }
 
   private onPointerUp(e: PointerEvent) {
-    const movedDistance = Math.hypot(
-      e.clientX - this.previousMousePosition.x,
-      e.clientY - this.previousMousePosition.y
-    );
-
+    const dist = Math.hypot(e.clientX - this.previousMousePosition.x, e.clientY - this.previousMousePosition.y);
     this.isDragging = false;
 
-    // If mouse was clicked without significant drag, treat as selection click
-    if (movedDistance < 4 && this.hoveredRegionId) {
-      const entry = this.regionObjects.get(this.hoveredRegionId);
+    if (dist < 4 && this.hoveredHitMesh) {
+      const entry = this.hitObjects.get(this.hoveredHitMesh);
       if (entry) {
-        this.selectRegion(entry.region);
+        if (entry.type === 'landmark') {
+          this.callbacks.onSelectItem({ type: 'landmark', data: entry.data });
+          this.flyTo(entry.data.center[0], entry.data.center[1]);
+        } else {
+          const sec = this.currentSectors.find((s) => s.sector_id === entry.data.id);
+          this.callbacks.onSelectItem({ type: 'region', data: entry.data, sector: sec });
+          this.flyTo(entry.data.center[0], entry.data.center[1]);
+        }
       }
     }
   }
@@ -364,7 +557,7 @@ export class ThreeMarsGlobe {
   private onWheel(e: WheelEvent) {
     e.preventDefault();
     const zoomFactor = e.deltaY * 0.012;
-    this.camera.position.z = Math.min(Math.max(8.0, this.camera.position.z + zoomFactor), 22.0);
+    this.camera.position.z = Math.min(Math.max(7.5, this.camera.position.z + zoomFactor), 22.0);
   }
 
   private onResize() {
@@ -377,92 +570,118 @@ export class ThreeMarsGlobe {
 
   private checkIntersection(clientX: number, clientY: number) {
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    const hitMeshes = Array.from(this.regionObjects.values()).map((v) => v.hitMesh);
+    const hitMeshes = Array.from(this.hitObjects.keys());
     const intersects = this.raycaster.intersectObjects(hitMeshes, false);
 
     if (intersects.length > 0) {
-      const hitObj = intersects[0].object as THREE.Mesh;
-      const regionId = hitObj.userData.regionId;
-      if (regionId && this.regionObjects.has(regionId)) {
-        if (this.hoveredRegionId !== regionId) {
-          this.setRegionHover(regionId, true);
-        }
-        this.callbacks.onHoverRegion(this.regionObjects.get(regionId)!.region, { x: clientX, y: clientY });
+      const hitMesh = intersects[0].object;
+      const entry = this.hitObjects.get(hitMesh);
+      if (entry) {
+        this.hoveredHitMesh = hitMesh;
         this.renderer.domElement.style.cursor = 'pointer';
+
+        if (entry.type === 'landmark') {
+          this.callbacks.onHoverItem({ type: 'landmark', data: entry.data }, { x: clientX, y: clientY });
+        } else {
+          const sec = this.currentSectors.find((s) => s.sector_id === entry.data.id);
+          this.callbacks.onHoverItem({ type: 'region', data: entry.data, sector: sec }, { x: clientX, y: clientY });
+        }
         return;
       }
     }
 
-    if (this.hoveredRegionId) {
-      this.setRegionHover(this.hoveredRegionId, false);
-      this.hoveredRegionId = null;
-      this.callbacks.onHoverRegion(null);
+    if (this.hoveredHitMesh) {
+      this.hoveredHitMesh = null;
+      this.callbacks.onHoverItem(null);
       this.renderer.domElement.style.cursor = 'default';
     }
   }
 
-  private setRegionHover(regionId: string, isHovered: boolean) {
-    this.hoveredRegionId = isHovered ? regionId : null;
-    const item = this.regionObjects.get(regionId);
-    if (!item) return;
-
-    // Scale beacon group up slightly on hover
-    const targetScale = isHovered ? 1.35 : 1.0;
-    item.group.scale.set(targetScale, targetScale, targetScale);
-  }
-
-  public selectRegion(region: MarsRegion) {
-    this.callbacks.onSelectRegion(region);
-
-    // Calculate target rotation to face the region directly toward camera
-    const latRad = THREE.MathUtils.degToRad(region.center[0]);
-    const lonRad = THREE.MathUtils.degToRad(region.center[1]);
-
-    // Target rotation angles around Y and X to face +Z
-    this.targetRotation = {
-      y: -(lonRad + Math.PI / 2),
-      x: latRad,
-    };
-  }
-
-  public resetRotation() {
-    this.targetRotation = null;
-    this.rotationVelocity = { x: 0, y: 0.0012 };
-  }
-
-  public getScreenPositions(): { region: MarsRegion; x: number; y: number; visible: boolean }[] {
+  // --- Projected Screen Labels ---
+  public getScreenPositions(): {
+    id: string;
+    name: string;
+    color: string;
+    category?: string;
+    x: number;
+    y: number;
+    visible: boolean;
+    isLandmark: boolean;
+  }[] {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const result: { region: MarsRegion; x: number; y: number; visible: boolean }[] = [];
+    const results: {
+      id: string;
+      name: string;
+      color: string;
+      category?: string;
+      x: number;
+      y: number;
+      visible: boolean;
+      isLandmark: boolean;
+    }[] = [];
 
-    this.regionObjects.forEach(({ group, region }) => {
+    // 1. Sector Labels
+    MARS_REGIONS.forEach((region) => {
       const worldPos = new THREE.Vector3();
-      group.getWorldPosition(worldPos);
+      const pos = latLonToVector3(region.center[0], region.center[1], this.GLOBE_RADIUS);
+      worldPos.copy(pos).applyMatrix4(this.globeGroup.matrixWorld);
 
-      // Check if on facing hemisphere
       const normal = worldPos.clone().normalize();
       const cameraDir = this.camera.position.clone().sub(worldPos).normalize();
-      const dot = normal.dot(cameraDir);
-      const isVisible = dot > 0.15;
+      const isVisible = normal.dot(cameraDir) > 0.25;
 
       const projected = worldPos.clone().project(this.camera);
       const x = (projected.x * 0.5 + 0.5) * rect.width;
       const y = (-(projected.y * 0.5) + 0.5) * rect.height;
 
-      result.push({
-        region,
+      results.push({
+        id: region.id,
+        name: region.name,
+        color: region.color,
+        category: 'SECTOR',
         x,
         y,
-        visible: isVisible,
+        visible: isVisible && (this.activeCategory === 'ALL' || this.activeCategory === 'SECTORS'),
+        isLandmark: false,
       });
     });
 
-    return result;
+    // 2. Landmark Labels (sampled for prominent features when category matches)
+    if (this.activeCategory !== 'SECTORS') {
+      USGS_MARTIAN_NOMENCLATURE.forEach((lm) => {
+        if (this.activeCategory !== 'ALL' && lm.category !== this.activeCategory) return;
+
+        const worldPos = new THREE.Vector3();
+        const pos = latLonToVector3(lm.center[0], lm.center[1], this.GLOBE_RADIUS);
+        worldPos.copy(pos).applyMatrix4(this.globeGroup.matrixWorld);
+
+        const normal = worldPos.clone().normalize();
+        const cameraDir = this.camera.position.clone().sub(worldPos).normalize();
+        const isVisible = normal.dot(cameraDir) > 0.35;
+
+        const projected = worldPos.clone().project(this.camera);
+        const x = (projected.x * 0.5 + 0.5) * rect.width;
+        const y = (-(projected.y * 0.5) + 0.5) * rect.height;
+
+        results.push({
+          id: lm.id,
+          name: lm.name,
+          color: lm.color,
+          category: lm.category,
+          x,
+          y,
+          visible: isVisible,
+          isLandmark: true,
+        });
+      });
+    }
+
+    return results;
   }
 
   private animate = () => {
     this.animationFrameId = requestAnimationFrame(this.animate);
 
-    // Smooth interpolation to target region if clicked
     if (this.targetRotation) {
       this.globeGroup.rotation.y += (this.targetRotation.y - this.globeGroup.rotation.y) * 0.05;
       this.globeGroup.rotation.x += (this.targetRotation.x - this.globeGroup.rotation.x) * 0.05;
@@ -473,10 +692,8 @@ export class ThreeMarsGlobe {
         this.targetRotation = null;
       }
     } else if (!this.isDragging) {
-      // Idle slow spin
       this.globeGroup.rotation.y += this.rotationVelocity.y;
       this.globeGroup.rotation.x += this.rotationVelocity.x;
-      // Damping on X
       this.rotationVelocity.x *= 0.95;
     }
 

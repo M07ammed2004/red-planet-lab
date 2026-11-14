@@ -86,7 +86,6 @@ def colorize_elevation(grid: np.ndarray) -> bytes:
 
 def colorize_slope(grid: np.ndarray) -> bytes:
     """Map slope in degrees to a risk-graded RGBA color palette."""
-    # 0 deg (green, safe) -> 10 deg (yellow) -> 20 deg (orange) -> 30+ deg (red, dangerous)
     stops = [
         (0.0, (46, 170, 85)),    # Green (0-5 deg): Flat & highly traversable
         (5.0, (140, 195, 60)),   # Yellow-Green (5 deg): Gentle slope
@@ -107,6 +106,76 @@ def colorize_slope(grid: np.ndarray) -> bytes:
                 continue
 
             val = min(val, 30.0)
+            for i in range(len(stops) - 1):
+                p0, c0 = stops[i]
+                p1, c1 = stops[i + 1]
+                if p0 <= val <= p1:
+                    t = (val - p0) / (p1 - p0)
+                    r = int(c0[0] + t * (c1[0] - c0[0]))
+                    g = int(c0[1] + t * (c1[1] - c0[1]))
+                    b = int(c0[2] + t * (c1[2] - c0[2]))
+                    break
+            else:
+                r, g, b = stops[-1][1]
+
+            idx = (y * width + x) * 4
+            rgba[idx : idx + 4] = bytes([r, g, b, 255])
+
+    return bytes(rgba)
+
+
+def colorize_geology(grid: np.ndarray) -> bytes:
+    """
+    Map USGS SIM 3292 planetary geologic unit codes to standardized geologic colors.
+    Units:
+      1 = Ancient Noachian Crater Basement & Rim Complex (tan/brown)
+      2 = Volcanic Floor Basalt Plain (Hesperian volcanic, purple/violet)
+      3 = Deltaic & Fluvio-Lacustrine Fan Deposits (Hesperian, golden-orange)
+      4 = Layered Smectite/Sulfate Mound Strata (hydrated minerals, cyan-teal)
+      5 = Modern Eolian Sand Sheet & Dune Fields (Amazonian active, amber/ochre)
+    """
+    unit_palette: dict[int, tuple[int, int, int]] = {
+        1: (185, 115, 85),   # Noachian basement complex
+        2: (120, 75, 145),   # Volcanic plain basalt
+        3: (240, 145, 40),   # Sedimentary deltaic fan
+        4: (75, 165, 150),   # Clay / sulfate layered strata
+        5: (220, 185, 75),   # Modern eolian dunes
+    }
+
+    height, width = grid.shape
+    rgba = bytearray(height * width * 4)
+
+    for y in range(height):
+        for x in range(width):
+            unit_code = int(grid[y, x])
+            rgb = unit_palette.get(unit_code, (160, 140, 130))
+            idx = (y * width + x) * 4
+            rgba[idx : idx + 4] = bytes([rgb[0], rgb[1], rgb[2], 255])
+
+    return bytes(rgba)
+
+
+def colorize_roughness(grid: np.ndarray) -> bytes:
+    """Map roughness (local std dev in meters) to a distinct amber/violet palette."""
+    min_val = float(np.nanmin(grid))
+    max_val = float(np.nanmax(grid))
+    val_range = max(max_val - min_val, 1e-5)
+    normalized = np.clip((grid - min_val) / val_range, 0.0, 1.0)
+
+    stops = [
+        (0.0, (40, 60, 100)),    # Low roughness (smooth floor)
+        (0.25, (60, 120, 140)),  # Moderate roughness
+        (0.5, (140, 160, 80)),   # Boulder field
+        (0.75, (220, 150, 40)),  # High roughness
+        (1.0, (230, 60, 50)),    # Extreme rugged terrain
+    ]
+
+    height, width = grid.shape
+    rgba = bytearray(height * width * 4)
+
+    for y in range(height):
+        for x in range(width):
+            val = normalized[y, x]
             for i in range(len(stops) - 1):
                 p0, c0 = stops[i]
                 p1, c1 = stops[i + 1]
@@ -177,15 +246,19 @@ class LayerExporter:
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_payload, f, indent=2)
 
-        # Generate preview PNG
+        # Generate preview PNG at native grid resolution for crystal-clear 3D draping
         png_path = sector_dir / f"{layer_type}.png"
-        h, w = resampled_32.shape
+        h, w = grid.shape
         if layer_type == "elevation":
-            rgba = colorize_elevation(resampled_32)
+            rgba = colorize_elevation(grid)
         elif layer_type == "slope":
-            rgba = colorize_slope(resampled_32)
+            rgba = colorize_slope(grid)
+        elif layer_type == "roughness":
+            rgba = colorize_roughness(grid)
+        elif layer_type == "geology":
+            rgba = colorize_geology(grid)
         else:
-            rgba = colorize_elevation(resampled_32)
+            rgba = colorize_elevation(grid)
 
         write_png_rgba(png_path, w, h, rgba)
 

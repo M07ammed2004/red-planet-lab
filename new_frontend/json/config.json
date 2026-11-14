@@ -1,0 +1,24 @@
+{
+  "project": "Red Planet Lab \u2014 Deluxe Edition",
+  "version": "1.0.0",
+  "description": "Visual theme and project metadata; original simulation mechanics remain in app.js.",
+  "map": {
+    "width": 60,
+    "height": 40,
+    "cellSize": 18,
+    "kilometersPerCell": 0.6,
+    "steepnessLimitDegrees": 13
+  },
+  "rover": {
+    "name": "Curio",
+    "style": "friendly cartoon explorer",
+    "accent": "#d85c2b",
+    "window": "#78b9cf"
+  },
+  "algorithms": [
+    "A*",
+    "Dijkstra",
+    "Greedy",
+    "Ripple"
+  ]
+}
